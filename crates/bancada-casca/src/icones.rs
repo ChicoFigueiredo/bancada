@@ -2,7 +2,8 @@
 //! casca desenha os ícones por nome. O SBF usa Material Symbols Rounded, o Chess usa Phosphor;
 //! a casca não embute nenhuma das duas. Sem glifo para um nome, o botão mostra só o rótulo.
 
-use egui::{FontData, FontDefinitions, FontFamily, FontId, RichText};
+use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
+use egui::{FontData, FontFamily, FontId, RichText};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -76,28 +77,37 @@ impl FamiliaDeIcones {
             .map(|g| RichText::new(g).font(FontId::new(tamanho, self.familia())))
     }
 
-    /// Acrescenta a fonte às definições do egui: família própria e reserva da proporcional
-    /// (para um glifo no meio de um texto também aparecer).
-    pub fn instalar(&self, fontes: &mut FontDefinitions) {
-        let Some(bytes) = &self.fonte else {
-            return;
-        };
-        fontes.font_data.insert(
-            FAMILIA_ICONES.to_owned(),
-            Arc::new(FontData::from_owned(bytes.as_ref().clone())),
-        );
-        let mut familia = vec![FAMILIA_ICONES.to_owned()];
-        if let Some(prop) = fontes.families.get(&FontFamily::Proportional) {
-            familia.extend(prop.iter().cloned());
-        }
-        fontes
-            .families
-            .insert(FontFamily::Name(FAMILIA_ICONES.into()), familia);
-        fontes
-            .families
-            .entry(FontFamily::Proportional)
-            .or_default()
-            .push(FAMILIA_ICONES.to_owned());
+    /// A família já está instalada no `Context`? (`add_font` só vale a partir da passada
+    /// seguinte; desenhar com uma família nomeada que ainda não existe faz o egui entrar em
+    /// pânico.) Sem fonte própria, sempre pronta.
+    pub fn pronta(&self, ctx: &egui::Context) -> bool {
+        self.fonte.is_none()
+            || ctx.fonts(|f| {
+                f.definitions()
+                    .families
+                    .contains_key(&FontFamily::Name(FAMILIA_ICONES.into()))
+            })
+    }
+
+    /// A fonte pronta para `egui::Context::add_font`: família própria e reserva (no fim) da
+    /// proporcional, para um glifo no meio de um texto também aparecer. `add_font` soma às
+    /// fontes que já existem, então não apaga as do app.
+    pub fn insercao(&self) -> Option<FontInsert> {
+        let bytes = self.fonte.as_ref()?;
+        Some(FontInsert::new(
+            FAMILIA_ICONES,
+            FontData::from_owned(bytes.as_ref().clone()),
+            vec![
+                InsertFontFamily {
+                    family: FontFamily::Name(FAMILIA_ICONES.into()),
+                    priority: FontPriority::Highest,
+                },
+                InsertFontFamily {
+                    family: FontFamily::Proportional,
+                    priority: FontPriority::Lowest,
+                },
+            ],
+        ))
     }
 }
 
@@ -112,8 +122,9 @@ mod testes {
         assert_eq!(f.get("nada"), None);
         assert_eq!(f.get(""), None);
         assert_eq!(f.familia(), FontFamily::Proportional);
-        let mut defs = FontDefinitions::default();
-        f.instalar(&mut defs);
-        assert!(!defs.font_data.contains_key(FAMILIA_ICONES));
+        assert!(f.insercao().is_none(), "sem fonte, nada a instalar");
+        let com = FamiliaDeIcones::com_fonte(vec![0, 1, 2]);
+        assert_eq!(com.familia(), FontFamily::Name(FAMILIA_ICONES.into()));
+        assert_eq!(com.insercao().map(|i| i.families.len()), Some(2));
     }
 }

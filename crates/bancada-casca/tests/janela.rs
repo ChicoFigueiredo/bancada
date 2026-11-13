@@ -576,3 +576,37 @@ fn abas_da_pagina_comecam_na_primeira_disponivel_e_ignoram_a_desabilitada() {
     vazio(&mut c, &ctx);
     assert_eq!(c.estado.ribbon.aba_ativa.as_deref(), Some("exibir"));
 }
+
+/// Com uma fonte de ícones própria (aqui a Ubuntu-Light do egui, só para o teste), a família
+/// nomeada existe e o desenho não entra em pânico; e uma fonte que o app soma depois com
+/// `add_font` não apaga a dos ícones.
+#[test]
+fn fonte_de_icones_do_app_e_registrada_sem_apagar_as_outras() {
+    let bytes = egui::FontDefinitions::default()
+        .font_data
+        .get("Ubuntu-Light")
+        .map(|d| d.font.to_vec())
+        .expect("fonte padrão do egui");
+    let mut config = AppExemplo::config();
+    config.icones = bancada_casca::FamiliaDeIcones::com_fonte(bytes.clone())
+        .glifo("projeto", "P")
+        .glifo("novo", "+");
+    let mut c = Casca::nova(AppExemplo::novo(), config).unwrap();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "fonte-do-app",
+        egui::FontData::from_owned(bytes),
+        vec![egui::epaint::text::InsertFontFamily {
+            family: egui::FontFamily::Name("serifa".into()),
+            priority: egui::epaint::text::FontPriority::Highest,
+        }],
+    ));
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    let familias = ctx.fonts(|f| f.definitions().families.keys().cloned().collect::<Vec<_>>());
+    assert!(familias.contains(&egui::FontFamily::Name(
+        bancada_casca::icones::FAMILIA_ICONES.into()
+    )));
+    assert!(familias.contains(&egui::FontFamily::Name("serifa".into())));
+}

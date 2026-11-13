@@ -51,6 +51,11 @@ pub struct ConfigCasca {
     pub textos: Textos,
     /// Fonte da interface (Manrope no SBF), à frente da proporcional padrão do egui.
     pub fonte_interface: Option<Vec<u8>>,
+    /// Definições de fonte do app, se ele quiser trocar as do egui (`set_fonts` uma vez, no
+    /// primeiro quadro). A fonte da interface e a de ícones entram por cima, com `add_font`. O
+    /// app também pode chamar `ctx.add_font` quando quiser; só não deve chamar `set_fonts`
+    /// depois do primeiro quadro, senão some a família de ícones da casca.
+    pub definicoes_de_fontes: Option<egui::FontDefinitions>,
 }
 
 impl ConfigCasca {
@@ -65,6 +70,7 @@ impl ConfigCasca {
             icones: FamiliaDeIcones::sem_fonte(),
             textos: Textos::pt_br(),
             fonte_interface: None,
+            definicoes_de_fontes: None,
         }
     }
 }
@@ -118,6 +124,7 @@ pub struct Estado {
     pub(crate) textos: Textos,
     pub(crate) icones: FamiliaDeIcones,
     pub(crate) fonte_interface: Option<Vec<u8>>,
+    pub(crate) definicoes_de_fontes: Option<egui::FontDefinitions>,
     pub(crate) fontes_instaladas: bool,
     pub ribbon: EstadoRibbon,
     pub keytips: KeyTips,
@@ -203,6 +210,7 @@ impl<A: AppCasca> Casca<A> {
                 textos: config.textos,
                 icones: config.icones,
                 fonte_interface: config.fonte_interface,
+                definicoes_de_fontes: config.definicoes_de_fontes,
                 fontes_instaladas: false,
                 ribbon: EstadoRibbon::default(),
                 keytips: KeyTips::default(),
@@ -715,7 +723,16 @@ impl<A: AppCasca> Casca<A> {
         let quadro = self.montar_quadro();
         self.tratar_entrada(&ctx, &quadro);
         self.estado.pontos_keytip.clear();
+        // No primeiro quadro a fonte de ícones ainda não entrou (`add_font` vale na passada
+        // seguinte): desenha só com rótulos e pede outro quadro.
+        let icones_prontos = self.estado.icones.pronta(&ctx);
+        let guardada = (!icones_prontos)
+            .then(|| std::mem::replace(&mut self.estado.icones, FamiliaDeIcones::sem_fonte()));
         crate::vista::desenhar_janela(self, ui, &quadro);
+        if let Some(icones) = guardada {
+            self.estado.icones = icones;
+            ctx.request_repaint();
+        }
         self.atender_pedidos(&ctx, &quadro);
         let agora = self.preferencias();
         match &self.estado.ultimas_preferencias {
@@ -739,20 +756,24 @@ impl<A: AppCasca> Casca<A> {
 
     fn preparar_contexto(&mut self, ctx: &egui::Context) {
         if !self.estado.fontes_instaladas {
-            let mut fontes = egui::FontDefinitions::default();
-            if let Some(bytes) = &self.estado.fonte_interface {
-                fontes.font_data.insert(
-                    "bancada-interface".to_owned(),
-                    Arc::new(egui::FontData::from_owned(bytes.clone())),
-                );
-                fontes
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .insert(0, "bancada-interface".to_owned());
+            // Só `set_fonts` se o app deu definições próprias; o resto entra por `add_font`, que
+            // soma às fontes existentes (as que o app instalar depois também somam).
+            if let Some(definicoes) = self.estado.definicoes_de_fontes.take() {
+                ctx.set_fonts(definicoes);
             }
-            self.estado.icones.instalar(&mut fontes);
-            ctx.set_fonts(fontes);
+            if let Some(bytes) = &self.estado.fonte_interface {
+                ctx.add_font(egui::epaint::text::FontInsert::new(
+                    "bancada-interface",
+                    egui::FontData::from_owned(bytes.clone()),
+                    vec![egui::epaint::text::InsertFontFamily {
+                        family: egui::FontFamily::Proportional,
+                        priority: egui::epaint::text::FontPriority::Highest,
+                    }],
+                ));
+            }
+            if let Some(insercao) = self.estado.icones.insercao() {
+                ctx.add_font(insercao);
+            }
             self.estado.fontes_instaladas = true;
         }
         if !self.estado.tema_aplicado {
