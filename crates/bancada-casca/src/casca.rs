@@ -227,6 +227,19 @@ impl<A: AppCasca> Casca<A> {
         eframe::run_native(&titulo, opcoes, Box::new(move |_cc| Ok(Box::new(self))))
     }
 
+    /// Liga os KeyTips no nível das abas, como o toque de Alt.
+    pub fn mostrar_keytips(&mut self) {
+        if !self.estado.keytips.ativo() {
+            self.estado.keytips.tratar(
+                ribbon::EntradaKeyTip::ToqueAlt,
+                &[],
+                &[],
+                &[],
+                &ListaDeAcoes::default(),
+            );
+        }
+    }
+
     pub fn tema(&self) -> &Arc<TemaAtivo> {
         &self.estado.tema
     }

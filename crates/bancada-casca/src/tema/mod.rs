@@ -341,9 +341,6 @@ pub fn montar_visuals(tema: &TemaAtivo) -> egui::Visuals {
         estado.corner_radius = canto;
         estado.expansion = 0.0;
     }
-    // Botões sutis (os do Ribbon, os itens de navegação) não têm contorno em repouso.
-    w.inactive.bg_stroke = Stroke::NONE;
-    w.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.disabled_alpha = 0.5;
     v
 }

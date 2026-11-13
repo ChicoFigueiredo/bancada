@@ -475,3 +475,27 @@ fn lista_invalida_do_app_nao_derruba_a_janela() {
     assert!(c.estado.paleta.aberta);
     assert!(c.app.0.executadas.is_empty());
 }
+
+#[test]
+fn barra_de_status_fica_inteira_no_rodape() {
+    let mut c = casca();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    let status = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("casca.status"))
+        .expect("painel de status");
+    let ribbon = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("casca.ribbon"))
+        .expect("ribbon");
+    assert!((status.outer_rect.bottom() - 800.0).abs() < 0.5);
+    assert!(
+        status.outer_rect.height() >= 23.5,
+        "{:?}",
+        status.outer_rect
+    );
+    // O Ribbon clássico tem a altura dos tokens: abas (32) + corpo (96) + linhas.
+    assert!(
+        ribbon.outer_rect.height() <= 32.0 + 96.0 + 4.0,
+        "{:?}",
+        ribbon.outer_rect
+    );
+}

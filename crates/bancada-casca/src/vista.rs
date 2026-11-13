@@ -204,6 +204,10 @@ fn pintar_fundo(ui: &Ui, resp: &Response, rect: Rect, acao: &Acao, p: &Paleta, m
 
 /// Um quadro da janela inteira.
 pub(crate) fn desenhar_janela<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) {
+    // A Ui raiz do eframe não tem fundo: pinta a janela inteira com `surface-0`.
+    let fundo = casca.estado.tema.paleta.superficie_0;
+    ui.painter()
+        .rect_filled(ui.max_rect(), CornerRadius::ZERO, fundo);
     barra_de_titulo(casca, ui, q);
     let area_abas = desenhar_ribbon(casca, ui, q);
     barra_de_status(casca, ui);
@@ -271,7 +275,16 @@ fn desenhar_ribbon<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) -
     let modo = casca.estado.ribbon.modo;
     let mostra_corpo = casca.estado.ribbon.mostra_corpo() && modo != ModoRibbon::Recolhido;
     let nivel = casca.estado.keytips.nivel().clone();
+    // Altura fixa por modo: a faixa das abas mais o corpo (clássico ou simples).
+    let corpo = if !mostra_corpo || ativa.is_none() {
+        0.0
+    } else if modo == ModoRibbon::Simples {
+        m.altura_ribbon_simples + 1.0
+    } else {
+        m.altura_ribbon_classico + 1.0
+    };
     egui::Panel::top("casca.ribbon")
+        .exact_size(m.altura_abas_ribbon + corpo + 2.0)
         .frame(
             Frame::new()
                 .fill(p.superficie_2)
@@ -279,6 +292,8 @@ fn desenhar_ribbon<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) -
                 .stroke(Stroke::new(1.0, p.borda)),
         )
         .show(ui, |ui| {
+            // A altura do Ribbon é a dos tokens: sem respiro vertical extra entre as linhas.
+            ui.spacing_mut().item_spacing.y = 0.0;
             let faixa = ui.horizontal(|ui| {
                 ui.set_height(m.altura_abas_ribbon);
                 ui.spacing_mut().item_spacing.x = 2.0;
@@ -320,7 +335,9 @@ fn desenhar_ribbon<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) -
                 && let Some(id) = &ativa
                 && let Some(aba) = q.abas.iter().find(|a| &a.id == id)
             {
-                ui.separator();
+                let (linha, _) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                ui.painter().rect_filled(linha, CornerRadius::ZERO, p.borda);
                 let pts = corpo_do_ribbon(ui, aba, modo, q, casca, &p, &m);
                 if nivel == NivelKeyTip::Acoes(aba.id.clone()) {
                     casca.estado.pontos_keytip.extend(pts);
@@ -529,6 +546,15 @@ fn corpo_recolhido<A: AppCasca>(casca: &mut Casca<A>, ctx: &egui::Context, q: &Q
             Frame::popup(ui.style())
                 .fill(p.superficie_2)
                 .show(ui, |ui| {
+                    // Numa Area a altura é livre: limita à do corpo expandido (os separadores
+                    // verticais ocupam toda a altura disponível).
+                    let altura = if casca.estado.ribbon.modo_expandido == ModoRibbon::Simples {
+                        m.altura_ribbon_simples
+                    } else {
+                        m.altura_ribbon_classico
+                    };
+                    ui.set_max_height(altura);
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     corpo_do_ribbon(ui, aba, ModoRibbon::Recolhido, q, casca, &p, &m)
                 })
                 .inner
@@ -1003,6 +1029,9 @@ fn barra_de_status<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
                 .stroke(Stroke::new(1.0, p.borda)),
         )
         .show(ui, |ui| {
+            // Controles da barra cabem na altura dela (o padrão do egui é 32 px).
+            ui.spacing_mut().interact_size.y = m.altura_status - 4.0;
+            ui.spacing_mut().button_padding.y = 0.0;
             ui.horizontal_centered(|ui| {
                 let mut desenhar = |ui: &mut Ui, s: &crate::app::SegmentoStatus| {
                     let cor = match s.tom {
@@ -1012,11 +1041,19 @@ fn barra_de_status<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
                         Tom::Aviso => p.aviso,
                         Tom::Perigo => p.perigo,
                     };
-                    let texto = match icones.get(&s.icone) {
-                        Some(g) => format!("{g} {}", s.texto),
-                        None => s.texto.clone(),
-                    };
-                    let rt = RichText::new(texto).small().color(cor);
+                    // Ícone e texto em rótulos separados: a fonte do ícone tem outras métricas
+                    // e, no mesmo texto, desalinharia a linha de base.
+                    if let Some(g) = icones.get(&s.icone) {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(g)
+                                    .font(FontId::new(11.0, icones.familia()))
+                                    .color(cor),
+                            )
+                            .selectable(false),
+                        );
+                    }
+                    let rt = RichText::new(&s.texto).small().color(cor);
                     let r = if s.clicavel {
                         ui.add(egui::Button::new(rt).frame(false))
                     } else {
@@ -1120,8 +1157,15 @@ fn flutuantes<A: AppCasca>(casca: &mut Casca<A>, ctx: &egui::Context) {
             }
         } else {
             let mut aberto = true;
+            // Em cascata a partir do centro da área livre, para não cobrir o Ribbon.
+            let area = ctx.content_rect();
+            let passo = (id % 6) as f32 * 28.0;
             egui::Window::new(titulo)
                 .id(Id::new(("casca.flutuante", id)))
+                .default_pos(pos2(
+                    area.center().x - 160.0 + passo,
+                    area.top() + 190.0 + passo,
+                ))
                 .open(&mut aberto)
                 .default_size([480.0, 520.0])
                 .resizable(true)
