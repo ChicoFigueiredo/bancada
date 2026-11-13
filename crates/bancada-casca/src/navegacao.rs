@@ -230,6 +230,8 @@ pub struct ItemNavegacao {
     pub icone: String,
     pub contagem: Option<u64>,
     pub indisponivel: Option<Indisponivel>,
+    /// Recuo: 0 = item do grupo, 1 = subitem ("Descartados" sob "Documentos").
+    pub nivel: u8,
 }
 
 impl ItemNavegacao {
@@ -240,7 +242,14 @@ impl ItemNavegacao {
             icone: icone.to_owned(),
             contagem: None,
             indisponivel: None,
+            nivel: 0,
         }
+    }
+
+    /// Subitem, recuado sob o item anterior.
+    pub fn subitem(mut self) -> Self {
+        self.nivel = 1;
+        self
     }
 
     pub fn contagem(mut self, n: u64) -> Self {
@@ -261,6 +270,8 @@ impl ItemNavegacao {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrupoNavegacao {
     pub rotulo: String,
+    /// Selo ao lado do nome do grupo ("fatia 1").
+    pub selo: Option<String>,
     pub itens: Vec<ItemNavegacao>,
 }
 
@@ -268,8 +279,14 @@ impl GrupoNavegacao {
     pub fn novo(rotulo: impl Into<String>, itens: Vec<ItemNavegacao>) -> Self {
         Self {
             rotulo: rotulo.into(),
+            selo: None,
             itens,
         }
+    }
+
+    pub fn selo(mut self, selo: impl Into<String>) -> Self {
+        self.selo = Some(selo.into());
+        self
     }
 }
 

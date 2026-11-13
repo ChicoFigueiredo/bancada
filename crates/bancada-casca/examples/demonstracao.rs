@@ -7,7 +7,7 @@
 //!
 //! Para conferência visual sem mexer na janela: `BANCADA_CAPTURA=/caminho/tela.ppm` grava uma
 //! captura (PPM) depois de alguns quadros e fecha. `BANCADA_CENA` escolhe o que mostrar:
-//! `paleta`, `keytips`, `simples`, `recolhido`, `bastidores`, `flutuante`, `escuro`.
+//! `paleta`, `keytips`, `menu`, `simples`, `recolhido`, `bastidores`, `flutuante`, `escuro`.
 
 #[path = "../tests/comum/app_exemplo.rs"]
 mod app_exemplo;
@@ -31,6 +31,7 @@ impl Demonstracao {
                 e.paleta.busca = "pro".into();
             }
             "keytips" => self.casca.mostrar_keytips(),
+            "menu" => pedir(ctx, Pedido::Executar("filtro.estado".into())),
             "simples" => e.ribbon.definir_modo(ModoRibbon::Simples),
             "recolhido" => {
                 e.ribbon.definir_modo(ModoRibbon::Recolhido);

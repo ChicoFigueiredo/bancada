@@ -50,6 +50,9 @@ pub struct Acao {
     pub marcada: bool,
     /// Fica fora da Paleta (por exemplo a própria Paleta).
     pub fora_da_paleta: bool,
+    /// Ação com menu (por exemplo "Estado do achado ⏷"): executar abre o menu com estas Ações
+    /// da lista, em vez de chegar ao app.
+    pub menu: Vec<IdAcao>,
 }
 
 impl Acao {
@@ -66,7 +69,14 @@ impl Acao {
             disponibilidade: Disponibilidade::Habilitada,
             marcada: false,
             fora_da_paleta: false,
+            menu: Vec::new(),
         }
+    }
+
+    /// Faz da Ação um menu com as Ações dadas (ids da lista única).
+    pub fn menu(mut self, ids: &[&str]) -> Self {
+        self.menu = ids.iter().map(|i| (*i).to_owned()).collect();
+        self
     }
 
     pub fn icone(mut self, nome: impl Into<String>) -> Self {

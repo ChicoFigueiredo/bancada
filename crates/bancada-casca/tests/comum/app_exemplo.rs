@@ -58,6 +58,8 @@ pub struct AppExemplo {
     pub rotas_abertas: Vec<(Rota, Local)>,
     pub cliques_status: Vec<String>,
     pub textos: Textos,
+    /// Filtro escolhido no menu "Estado ▾" (exemplo de Ação com menu).
+    pub filtro: String,
 }
 
 impl AppExemplo {
@@ -67,6 +69,7 @@ impl AppExemplo {
         let _ = textos.acrescentar(FTL);
         Self {
             textos,
+            filtro: "todos".into(),
             ..Default::default()
         }
     }
@@ -109,6 +112,7 @@ pub fn icones() -> FamiliaDeIcones {
         ("aviso", "⚠"),
         ("cadeado", "🔒"),
         ("opcoes", "⚙"),
+        ("filtro", "⛃"),
     ])
 }
 
@@ -171,6 +175,13 @@ impl AppCasca for AppExemplo {
                 .icone("abrir")
                 .keytip("O")
                 .habilitada_se(sel, motivo),
+            Acao::nova("filtro.estado", "Estado")
+                .icone("filtro")
+                .keytip("F")
+                .menu(&["filtro.todos", "filtro.abertos", "filtro.concluidos"]),
+            Acao::nova("filtro.todos", "Todos").alternancia(self.filtro == "todos"),
+            Acao::nova("filtro.abertos", "Abertos").alternancia(self.filtro == "abertos"),
+            Acao::nova("filtro.concluidos", "Concluídos").alternancia(self.filtro == "concluidos"),
             Acao::nova("item.copiar", "Copiar id")
                 .icone("copiar")
                 .keytip("I")
@@ -186,7 +197,8 @@ impl AppCasca for AppExemplo {
                     "Geral",
                     &["geral.atualizar", "geral.desfazer", ids::PALETA],
                 ))
-                .grupo(Grupo::novo("itens", "Itens", &["item.novo"])),
+                .grupo(Grupo::novo("itens", "Itens", &["item.novo"]))
+                .grupo(Grupo::novo("filtros", "Filtros", &["filtro.estado"])),
             Aba::nova("triagem", "Triagem", "T")
                 .grupo(Grupo::novo(
                     "triagem",
@@ -245,8 +257,12 @@ impl AppCasca for AppExemplo {
                     ItemNavegacao::novo("contatos", "Contatos", "contato")
                         .contagem(CONTATOS.len() as u64),
                     ItemNavegacao::novo("tarefas", "Tarefas", "tarefa").contagem(tarefas as u64),
+                    ItemNavegacao::novo("tarefas:concluidas", "Concluídas", "concluir")
+                        .contagem(0)
+                        .subitem(),
                 ],
-            ),
+            )
+            .selo("fatia 1"),
             GrupoNavegacao::novo(
                 "Mais tarde",
                 vec![
@@ -473,6 +489,9 @@ impl AppCasca for AppExemplo {
     }
 
     fn ao_executar(&mut self, _ctx: &egui::Context, id: &str) {
+        if let Some(f) = id.strip_prefix("filtro.") {
+            self.filtro = f.to_owned();
+        }
         self.executadas.push(id.to_owned());
     }
 

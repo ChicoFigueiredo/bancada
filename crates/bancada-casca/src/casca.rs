@@ -120,6 +120,8 @@ pub struct Estado {
     pub(crate) assinatura_dock: Vec<String>,
     pub(crate) alt: DetectorAlt,
     pub secao_bastidores: Option<String>,
+    /// A Ação com menu cujo menu está aberto.
+    pub menu_aberto: Option<IdAcao>,
     /// Larguras medidas dos grupos do Ribbon (modo simples), do quadro anterior.
     pub(crate) larguras_grupos: HashMap<String, f32>,
     /// Onde cada KeyTip é desenhado neste quadro.
@@ -202,6 +204,7 @@ impl<A: AppCasca> Casca<A> {
                 assinatura_dock: Vec::new(),
                 alt: DetectorAlt::default(),
                 secao_bastidores: None,
+                menu_aberto: None,
                 larguras_grupos: HashMap::new(),
                 pontos_keytip: Vec::new(),
                 erros: Vec::new(),
@@ -282,7 +285,11 @@ impl<A: AppCasca> Casca<A> {
                 .dica(t.t("casca-mapa-atalhos-dica"))
                 .atalho(Atalho::ctrl(Key::Slash)),
             Acao::nova(ids::RIBBON_RECOLHER, t.t("casca-ribbon-recolher"))
-                .icone("recolher")
+                .icone(if modo == ModoRibbon::Recolhido {
+                    "expandir"
+                } else {
+                    "recolher"
+                })
                 .dica(t.t("casca-ribbon-recolher-dica"))
                 .atalho(Atalho::ctrl(Key::F1))
                 .alternancia(modo == ModoRibbon::Recolhido),
@@ -380,6 +387,13 @@ impl<A: AppCasca> Casca<A> {
         if !quadro.acoes.esta_habilitada(id) {
             return;
         }
+        if quadro.acoes.get(id).is_some_and(|a| !a.menu.is_empty()) {
+            // Ação com menu: abre (ou fecha) o menu; o app recebe só a Ação escolhida nele.
+            let ja_aberto = self.estado.menu_aberto.as_deref() == Some(id);
+            self.estado.menu_aberto = (!ja_aberto).then(|| id.to_owned());
+            return;
+        }
+        self.estado.menu_aberto = None;
         self.estado.ribbon.apos_executar();
         if id.starts_with("casca.") {
             self.tratar_acao_da_casca(ctx, id);

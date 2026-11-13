@@ -29,12 +29,42 @@ pub enum TamanhoBotao {
     Icone,
 }
 
-/// Glifo do app para o nome, ou a reserva das fontes padrão do egui.
-fn glifo<'a>(icones: &'a FamiliaDeIcones, nome: &str, reserva: &'a str) -> (&'a str, bool) {
-    match icones.get(nome) {
-        Some(g) => (g, true),
-        None => (reserva, false),
+/// Glifos de reserva para os ícones da própria casca, das fontes padrão do egui: valem quando a
+/// família do app não tem o nome.
+pub const ICONES_PADRAO_DA_CASCA: [(&str, &str); 10] = [
+    ("voltar", "⏴"),
+    ("avancar", "⏵"),
+    ("paleta", "🔍"),
+    ("atalhos", "⌨"),
+    ("recolher", "⏶"),
+    ("expandir", "⏷"),
+    ("ribbon-classico", "☰"),
+    ("ribbon-simples", "▬"),
+    ("densidade", "↕"),
+    ("fechar", "✖"),
+];
+
+/// O glifo do app para o nome, na família dele; senão a reserva da casca, na proporcional.
+fn glifo_com_padrao<'a>(
+    icones: &'a FamiliaDeIcones,
+    nome: &str,
+) -> Option<(&'a str, egui::FontFamily)> {
+    if let Some(g) = icones.get(nome) {
+        return Some((g, icones.familia()));
     }
+    ICONES_PADRAO_DA_CASCA
+        .iter()
+        .find(|(n, _)| *n == nome)
+        .map(|(_, g)| (*g, egui::FontFamily::Proportional))
+}
+
+/// Glifo e família para os botões da própria casca (Voltar, Avançar…).
+fn glifo<'a>(
+    icones: &'a FamiliaDeIcones,
+    nome: &str,
+    reserva: &'a str,
+) -> (&'a str, egui::FontFamily) {
+    glifo_com_padrao(icones, nome).unwrap_or((reserva, egui::FontFamily::Proportional))
 }
 
 /// Um botão de Ação da lista única, com dica (motivo se desabilitada) e estado de alternância.
@@ -63,14 +93,23 @@ pub fn botao_acao(
         .text_styles
         .get(&egui::TextStyle::Small)
         .map_or(12.0, |f| f.size);
-    let fonte_icone = |t: f32| FontId::new(t, icones.familia());
+    let (icone, familia) = match glifo_com_padrao(icones, &acao.icone) {
+        Some((g, f)) => (Some(g), f),
+        None => (None, egui::FontFamily::Proportional),
+    };
+    let fonte_icone = |t: f32| FontId::new(t, familia.clone());
     let painter = ui.painter().clone();
-    let icone = icones.get(&acao.icone);
+    // Ação com menu: o rótulo leva a seta.
+    let rotulo_txt = if acao.menu.is_empty() {
+        acao.rotulo.clone()
+    } else {
+        format!("{} ⏷", acao.rotulo)
+    };
     let alt_linha = (medidas.altura_controle * 0.75).max(22.0);
     let (rect, resposta) = match tamanho {
         TamanhoBotao::Grande => {
             let rotulo = painter.layout(
-                acao.rotulo.clone(),
+                rotulo_txt.clone(),
                 FontId::proportional(pequeno),
                 cor_texto,
                 76.0,
@@ -104,7 +143,7 @@ pub fn botao_acao(
         }
         TamanhoBotao::Pequeno => {
             let rotulo = painter.layout_no_wrap(
-                acao.rotulo.clone(),
+                rotulo_txt.clone(),
                 FontId::proportional(corpo - 1.0),
                 cor_texto,
             );
@@ -149,7 +188,11 @@ pub fn botao_acao(
             (rect, resp)
         }
     };
-    let _ = rect;
+    if !acao.menu.is_empty() {
+        // Onde abrir o menu desta Ação (lido no fim do quadro por `menu_aberto`).
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(Id::new(("casca.menu", acao.id.as_str())), rect));
+    }
     let resposta = resposta.on_hover_text(acao.texto_da_dica());
     if habilitada && resposta.clicked() {
         pedidos::executar(ui.ctx(), acao.id.clone());
@@ -222,7 +265,50 @@ pub(crate) fn desenhar_janela<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q:
     flutuantes(casca, ui.ctx());
     desenhar_paleta(casca, ui.ctx(), q);
     mapa_de_atalhos(casca, ui.ctx(), q);
+    menu_aberto(casca, ui.ctx(), q);
     keytips(casca, ui.ctx());
+}
+
+/// O menu de uma Ação com menu, logo abaixo do botão que o abriu.
+fn menu_aberto<A: AppCasca>(casca: &mut Casca<A>, ctx: &egui::Context, q: &Quadro) {
+    let Some(id) = casca.estado.menu_aberto.clone() else {
+        return;
+    };
+    let Some(acao) = q.acoes.get(&id) else {
+        casca.estado.menu_aberto = None;
+        return;
+    };
+    let Some(ancora) = ctx.data(|d| d.get_temp::<Rect>(Id::new(("casca.menu", id.as_str()))))
+    else {
+        casca.estado.menu_aberto = None;
+        return;
+    };
+    let tema = std::sync::Arc::clone(&casca.estado.tema);
+    let (p, m) = (tema.paleta, tema.medidas);
+    let icones = casca.estado.icones.clone();
+    let mut escolheu = false;
+    let resp = egui::Area::new(Id::new("casca.menu-aberto"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(ancora.left_bottom() + vec2(0.0, 2.0))
+        .show(ctx, |ui| {
+            Frame::popup(ui.style())
+                .fill(p.superficie_1)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for item in acao.menu.iter().filter_map(|i| q.acoes.get(i)) {
+                        if botao_acao(ui, item, TamanhoBotao::Pequeno, &icones, &p, &m).clicked() {
+                            escolheu = true;
+                        }
+                    }
+                });
+        });
+    let no_botao = ctx
+        .input(|i| i.pointer.interact_pos())
+        .is_some_and(|pos| ancora.contains(pos));
+    let fora = resp.response.clicked_elsewhere() && !no_botao;
+    if escolheu || fora || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        casca.estado.menu_aberto = None;
+    }
 }
 
 fn barra_de_titulo<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) {
@@ -328,6 +414,19 @@ fn desenhar_ribbon<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q: &Quadro) -
                     if !keytip.is_empty() {
                         pontos.push((keytip, r.rect));
                     }
+                }
+                // À direita: recolher/expandir o Ribbon (Ctrl+F1).
+                if let Some(recolher) = q.acoes.get(crate::casca::ids::RIBBON_RECOLHER) {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        botao_acao(
+                            ui,
+                            recolher,
+                            TamanhoBotao::Icone,
+                            &casca.estado.icones,
+                            &p,
+                            &m,
+                        );
+                    });
                 }
             });
             area_abas = faixa.response.rect;
@@ -444,7 +543,7 @@ fn corpo_do_ribbon<A: AppCasca>(
                     ui.separator();
                 }
                 ui.vertical(|ui| {
-                    ui.horizontal_top(|ui| {
+                    let linha = ui.horizontal_top(|ui| {
                         ui.set_min_height(alt_acoes.max(64.0));
                         ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                         let mut acoes = grupo.acoes.iter().filter_map(|id| q.acoes.get(id));
@@ -463,7 +562,15 @@ fn corpo_do_ribbon<A: AppCasca>(
                             });
                         }
                     });
-                    ui.label(RichText::new(&grupo.rotulo).small().color(p.tinta_suave));
+                    // Rótulo do grupo centrado sob as Ações (Office).
+                    let largura = linha.response.rect.width();
+                    ui.allocate_ui_with_layout(
+                        vec2(largura, 16.0),
+                        Layout::top_down(Align::Center),
+                        |ui| {
+                            ui.label(RichText::new(&grupo.rotulo).small().color(p.tinta_suave));
+                        },
+                    );
                 });
             }
         });
@@ -678,12 +785,17 @@ fn painel_de_navegacao<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
                     ui.spacing_mut().item_spacing.y = 1.0;
                     for grupo in &grupos {
                         ui.add_space(6.0);
-                        ui.label(
-                            RichText::new(&grupo.rotulo)
-                                .small()
-                                .strong()
-                                .color(p.tinta_suave),
-                        );
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(grupo.rotulo.to_uppercase())
+                                    .small()
+                                    .strong()
+                                    .color(p.tinta_suave),
+                            );
+                            if let Some(selo) = &grupo.selo {
+                                selo_pilula(ui, selo, &p);
+                            }
+                        });
                         ui.add_space(2.0);
                         for item in &grupo.itens {
                             item_de_navegacao(
@@ -730,7 +842,7 @@ fn item_de_navegacao(
     } else {
         p.tinta
     };
-    let mut x = rect.left() + 10.0;
+    let mut x = rect.left() + 10.0 + 18.0 * f32::from(item.nivel);
     if let Some(g) = icones.get(&item.icone) {
         let gal = ui.painter().layout_no_wrap(
             g.to_owned(),
@@ -790,6 +902,18 @@ fn item_de_navegacao(
     }
 }
 
+/// Selo em pílula ("fatia 2"): a única forma arredondada além dos chips (ADR-018).
+fn selo_pilula(ui: &mut Ui, texto: &str, p: &Paleta) {
+    let g =
+        ui.painter()
+            .layout_no_wrap(texto.to_owned(), FontId::proportional(10.5), p.tinta_suave);
+    let (rect, _) = ui.allocate_exact_size(g.size() + vec2(10.0, 4.0), Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(255), p.superficie_3);
+    ui.painter()
+        .galley(rect.min + vec2(5.0, 2.0), g, p.tinta_suave);
+}
+
 /// Voltar, Avançar e a trilha de um lugar.
 fn barra_da_trilha<A: AppCasca>(
     ui: &mut Ui,
@@ -801,26 +925,18 @@ fn barra_da_trilha<A: AppCasca>(
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        let (gv, _) = glifo(icones, "voltar", "⏴");
-        let (ga, _) = glifo(icones, "avancar", "⏵");
-        let fonte = FontId::new(
-            14.0,
-            if icones.get("voltar").is_some() {
-                icones.familia()
-            } else {
-                egui::FontFamily::Proportional
-            },
-        );
+        let (gv, fv) = glifo(icones, "voltar", "⏴");
+        let (ga, fa) = glifo(icones, "avancar", "⏵");
         let rv = ui.add_enabled(
             historico.pode_voltar(),
-            egui::Button::new(RichText::new(gv).font(fonte.clone())).frame(false),
+            egui::Button::new(RichText::new(gv).font(FontId::new(14.0, fv))).frame(false),
         );
         if rv.on_hover_text("Alt+←").clicked() {
             pedidos::pedir(ui.ctx(), Pedido::Voltar(local));
         }
         let ra = ui.add_enabled(
             historico.pode_avancar(),
-            egui::Button::new(RichText::new(ga).font(fonte)).frame(false),
+            egui::Button::new(RichText::new(ga).font(FontId::new(14.0, fa))).frame(false),
         );
         if ra.on_hover_text("Alt+→").clicked() {
             pedidos::pedir(ui.ctx(), Pedido::Avancar(local));
@@ -881,6 +997,8 @@ struct ComportamentoDock<'a, A> {
     titulos: &'a HashMap<String, String>,
     altura_aba: f32,
     paleta: Paleta,
+    /// Painéis fechados pelo X da aba neste quadro (viram "escondidos", não somem da árvore).
+    fechados: Vec<String>,
 }
 
 impl<A: AppCasca> egui_tiles::Behavior<String> for ComportamentoDock<'_, A> {
@@ -913,6 +1031,26 @@ impl<A: AppCasca> egui_tiles::Behavior<String> for ComportamentoDock<'_, A> {
 
     fn tab_bar_color(&self, _visuals: &egui::Visuals) -> Color32 {
         self.paleta.superficie_2
+    }
+
+    fn is_tab_closable(
+        &self,
+        tiles: &egui_tiles::Tiles<String>,
+        tile_id: egui_tiles::TileId,
+    ) -> bool {
+        matches!(tiles.get(tile_id), Some(egui_tiles::Tile::Pane(_)))
+    }
+
+    fn on_tab_close(
+        &mut self,
+        tiles: &mut egui_tiles::Tiles<String>,
+        tile_id: egui_tiles::TileId,
+    ) -> bool {
+        if let Some(egui_tiles::Tile::Pane(id)) = tiles.get(tile_id) {
+            self.fechados.push(id.clone());
+        }
+        // Não remove: o painel só fica escondido e volta pela caixa dele em Exibir.
+        false
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
@@ -992,7 +1130,7 @@ fn dock<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
         arvore.set_visible(tid, visiveis.get(&id).copied().unwrap_or(false));
     }
     let app = &mut casca.app;
-    egui::Panel::right("casca.dock")
+    let fechados = egui::Panel::right("casca.dock")
         .resizable(true)
         .default_size(340.0)
         .size_range(220.0..=720.0)
@@ -1008,9 +1146,15 @@ fn dock<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
                 titulos: &titulos,
                 altura_aba: m.altura_cabecalho_painel,
                 paleta: p,
+                fechados: Vec::new(),
             };
             arvore.ui(&mut comportamento, ui);
-        });
+            comportamento.fechados
+        })
+        .inner;
+    for id in fechados {
+        casca.estado.paineis_visiveis.insert(id, false);
+    }
 }
 
 fn barra_de_status<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {

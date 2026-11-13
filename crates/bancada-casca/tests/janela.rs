@@ -499,3 +499,26 @@ fn barra_de_status_fica_inteira_no_rodape() {
         ribbon.outer_rect
     );
 }
+
+#[test]
+fn acao_com_menu_abre_o_menu_e_o_app_recebe_so_a_escolha() {
+    let mut c = casca();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    pedir(&ctx, Pedido::Executar("filtro.estado".into()));
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    assert_eq!(c.estado.menu_aberto.as_deref(), Some("filtro.estado"));
+    assert!(c.app.executadas.is_empty(), "abrir o menu não chega ao app");
+    pedir(&ctx, Pedido::Executar("filtro.abertos".into()));
+    vazio(&mut c, &ctx);
+    assert_eq!(c.estado.menu_aberto, None);
+    assert_eq!(c.app.filtro, "abertos");
+    // De novo, e Esc fecha.
+    pedir(&ctx, Pedido::Executar("filtro.estado".into()));
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    apertar(&mut c, &ctx, Key::Escape, Modifiers::NONE);
+    vazio(&mut c, &ctx);
+    assert_eq!(c.estado.menu_aberto, None);
+}
