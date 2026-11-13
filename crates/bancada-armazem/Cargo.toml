@@ -1,0 +1,17 @@
+[package]
+name = "bancada-armazem"
+description = "Mecânica de SQLite compartilhada: PRAGMAs, escada de migrações, transação curta, tabela só de acréscimo, cópia e preferências"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# A API de backup do SQLite (`Backup`) fica atrás da feature `backup` do rusqlite.
+rusqlite = { workspace = true, features = ["backup"] }
+serde = "1"
+serde_json = "1"
+
+[lints]
+workspace = true
