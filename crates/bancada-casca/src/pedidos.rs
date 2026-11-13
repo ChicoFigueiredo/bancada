@@ -25,6 +25,8 @@ pub enum Pedido {
     Escala(f32),
     AbrirPaleta,
     FecharBastidores,
+    /// Torna ativa uma aba do Ribbon (por exemplo a contextual que acabou de aparecer).
+    AbrirAba(String),
 }
 
 fn id_fila() -> egui::Id {

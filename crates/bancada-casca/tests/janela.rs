@@ -547,3 +547,32 @@ fn preferencias_vao_e_voltam_em_json_e_o_app_e_avisado() {
     assert!(!c.app.preferencias_gravadas.is_empty(), "o app foi avisado");
     assert_eq!(c.app.preferencias_gravadas.last(), Some(&p));
 }
+
+#[test]
+fn abas_da_pagina_comecam_na_primeira_disponivel_e_ignoram_a_desabilitada() {
+    use bancada_casca::vista::{AbaDePagina, aba_escolhida};
+    let ctx = egui::Context::default();
+    let rota = Rota::nova("projeto:jardim");
+    let abas = [
+        AbaDePagina::nova("movimentacoes", "Movimentações").indisponivel("Chega com o livro-caixa"),
+        AbaDePagina::nova("registros", "Registros · a conferir").contagem(3),
+    ];
+    assert_eq!(
+        aba_escolhida(&ctx, &rota, &abas).as_deref(),
+        Some("registros")
+    );
+    // E a página desenha com elas, sem pânico, e o pedido de aba do Ribbon funciona.
+    let mut c = casca();
+    pedir(
+        &ctx,
+        Pedido::Abrir {
+            rota: rota.clone(),
+            local: Local::Centro,
+        },
+    );
+    vazio(&mut c, &ctx);
+    pedir(&ctx, Pedido::AbrirAba("exibir".into()));
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    assert_eq!(c.estado.ribbon.aba_ativa.as_deref(), Some("exibir"));
+}

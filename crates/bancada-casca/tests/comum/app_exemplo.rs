@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use bancada_casca::egui::{self, RichText};
+use bancada_casca::vista::{AbaDePagina, abas_de_pagina};
 use bancada_casca::{
     Aba, Acao, AppCasca, Atalho, ConfigCasca, Destino, Elo, FamiliaDeIcones, Grupo, GrupoNavegacao,
     ItemNavegacao, Local, PainelDock, Rota, SecaoBastidores, SegmentoStatus, Textos, Tom, ids,
@@ -379,10 +380,22 @@ impl AppCasca for AppExemplo {
                             ui.label("Responsável:");
                             link_item(ui, nome_do_contato(p.contato), format!("contato:{}", p.contato));
                         });
-                        ui.separator();
-                        ui.label(RichText::new("Tarefas").strong());
-                        for (tid, nome) in p.tarefas {
-                            link_item(ui, *nome, format!("tarefa:{tid}"));
+                        let abas = [
+                            AbaDePagina::nova("tarefas", "Tarefas").contagem(p.tarefas.len() as u64),
+                            AbaDePagina::nova("custos", "Custos")
+                                .indisponivel("Chega numa fatia futura (exemplo de aba desabilitada com motivo)"),
+                            AbaDePagina::nova("rastro", "Rastro"),
+                        ];
+                        match abas_de_pagina(ui, rota, &abas).as_deref() {
+                            Some("rastro") => {
+                                ui.label("Rastro de exemplo:");
+                                link_item(ui, nome_do_contato(p.contato), format!("contato:{}", p.contato));
+                            }
+                            _ => {
+                                for (tid, nome) in p.tarefas {
+                                    link_item(ui, *nome, format!("tarefa:{tid}"));
+                                }
+                            }
                         }
                         if ui.button("Selecionar este projeto").clicked() {
                             self.selecionado = Some(p.id.into());

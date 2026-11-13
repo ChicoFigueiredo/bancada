@@ -96,20 +96,30 @@ Exemplo completo, com tudo ligado: `cargo run -p bancada-casca --example demonst
 | App | `AppCasca` | obrigatórios: `acoes`, `abas`, `navegacao`, `rota_inicial`, `trilha`, `desenhar_pagina`, `ao_executar`. O resto tem padrão. |
 | Janela | `Casca::nova(app, ConfigCasca)`, `.executar()`, `.desenhar(ui)` | `desenhar` é o quadro inteiro (testes headless usam `Context::run_ui`). `casca.app` e `casca.estado` são públicos. |
 | Ações | `Acao` (builder: `icone`, `atalho`, `dica`, `keytip`, `alternancia(marcada)`, `desabilitada(motivo)`, `habilitada_se`, `fora_da_paleta`), `ListaDeAcoes` | lista única: ids únicos e atalho sem conflito (validados a cada quadro; erro vai para a barra de status, sem derrubar a janela). |
+| Ação com menu | `Acao::nova("filtro.estado", "Estado").menu(&["filtro.todos", "filtro.abertos"])` | executar a Ação abre o menu com as Ações dadas (da lista única); o app recebe só a escolhida. |
 | Ações da casca | `ids::{VOLTAR, AVANCAR, PALETA, MAPA_DE_ATALHOS, RIBBON_RECOLHER, RIBBON_CLASSICO, RIBBON_SIMPLES, DENSIDADE_COMPACTA}`, `ids::painel("detalhe")` | o app as põe nas abas como qualquer Ação (ex.: as caixas de painel na aba Exibir). Atalhos reservados: Alt+←/→, Ctrl+K, Ctrl+/, Ctrl+F1. |
 | Atalhos | `Atalho::{tecla, ctrl, alt}`, `.com_shift()`, `Atalho::ler("Ctrl+Shift+K")` | modificadores comparados com exatidão. Com um campo de texto em foco, só disparam os com Ctrl ou Alt. |
 | Ribbon | `Aba::nova(id, rótulo, keytip).contextual(visível).grupo(Grupo::novo(id, rótulo, &[ids]))`, `ModoRibbon` | a primeira Ação do grupo é o botão grande no modo clássico. A aba Arquivo (KeyTip `A`) aparece quando `secoes_bastidores()` não é vazio. |
 | Bastidores | `SecaoBastidores`, `desenhar_bastidores`, `vista::opcoes_de_aparencia(ui, &textos)` | `opcoes_de_aparencia` desenha Tema (por família), Densidade e Escala. |
-| Navegação | `Rota` (opaca), `GrupoNavegacao`, `ItemNavegacao` (`contagem`, `indisponivel(selo, motivo)`), `Elo`, `Historico`, `Local` | o item ativo acende por igualdade ou prefixo (`fornecedor` acende em `fornecedor:energia`). |
+| Navegação | `Rota` (opaca), `GrupoNavegacao` (`selo("fatia 1")`), `ItemNavegacao` (`contagem`, `indisponivel(selo, motivo)`, `subitem()`), `Elo`, `Historico`, `Local` | o item ativo acende por igualdade ou prefixo (`fornecedor` acende em `fornecedor:energia`). |
 | Link de item | `link_item(ui, rótulo, rota)` | clique abre no mesmo lugar (centro, ou no próprio flutuante); Ctrl+clique ou botão do meio abre num flutuante novo. |
-| Pedidos | `pedir(ctx, Pedido::…)`, `abrir`, `abrir_flutuante`, `executar`, `pedidos::local_atual(ctx)` | `Pedido::{Abrir, AbrirFlutuante, Voltar, Avancar, Executar, Tema, Densidade, Escala, AbrirPaleta, FecharBastidores}`. |
+| Página de item | `vista::abas_de_pagina(ui, rota, &[AbaDePagina::nova(id, rótulo).contagem(n).indisponivel(motivo)])` | abas da página (Movimentações, Registros · a conferir, Rastro…); a desabilitada mostra o motivo na dica; a escolha fica guardada por rota. |
+| Pedidos | `pedir(ctx, Pedido::…)`, `abrir`, `abrir_flutuante`, `executar`, `pedidos::local_atual(ctx)` | `Pedido::{Abrir, AbrirFlutuante, Voltar, Avancar, Executar, Tema, Densidade, Escala, AbrirPaleta, FecharBastidores, AbrirAba}`. |
+| Preferências | `casca.preferencias()`, `casca.aplicar_preferencias(&p)`, `AppCasca::ao_mudar_preferencias` | `Preferencias` (serde/JSON): Tema, Densidade, Escala, modo do Ribbon e painéis visíveis. O app grava (no SBF, pelas preferências do `bancada-armazem`). |
 | Paleta | `Destino` (via `AppCasca::destinos`) | busca sem caixa nem acento: prefixo > início de palavra > trecho > subsequência. Itens indisponíveis e Ações desabilitadas aparecem com o motivo e não executam. |
-| Dock | `PainelDock::novo(id, título, pilha)` (`icone`, `escondido`), `desenhar_painel` | painéis da mesma `pilha` viram abas; pilhas ficam uma embaixo da outra. |
+| Dock | `PainelDock::novo(id, título, pilha)` (`icone`, `escondido`), `desenhar_painel` | painéis da mesma `pilha` viram abas; pilhas ficam uma embaixo da outra. O X da aba esconde o painel (volta pela caixa dele, `ids::painel(id)`). |
 | Status | `SegmentoStatus::novo(id, texto)` (`icone`, `tom(Tom::Aviso)`, `dica`, `clicavel`, `a_direita`) | clique chega em `ao_clicar_status`. |
 | Temas | `ConfigCasca{tokens_json, temas_json, tema_inicial, densidade, escala}`, `TemaAtivo::do_contexto(ctx)`, `Paleta`, `TemaAtivo::cor("hero-bg")` | formato do `tokens.json`/`temas.json` do SBF e do Chess. `Paleta` tem os papéis semânticos em português (`superficie_0..4`, `tinta`, `tinta_suave` = `--text-3`, `sucesso`, `aviso`, `perigo`, `ouro`…). |
 | i18n | `Textos::pt_br()`, `.acrescentar(ftl)`, `.t(id)`, `.t_com(id, args)` | textos da casca em `i18n/pt-BR/casca.ftl` (ids `casca-*`). O app acrescenta os dele e passa em `ConfigCasca::textos`. |
 | Ícones | `FamiliaDeIcones::com_fonte(bytes).glifos([("delete", "\u{e872}")])` | a casca não embute fonte; sem glifo, o botão mostra só o rótulo. Ícones que a casca usa: `voltar`, `avancar`, `paleta`, `atalhos`, `recolher`, `ribbon-classico`, `ribbon-simples`, `densidade`. |
 | Fonte da interface | `ConfigCasca::fonte_interface` | bytes da Manrope (SBF), à frente da proporcional padrão. |
+
+## Renderizador e plataformas
+
+- Feature padrão `glow` (OpenGL). `--no-default-features --features wgpu` troca para wgpu.
+- Testado no Linux (X11/XWayland), inclusive a janela destacada como janela nativa. No
+  Wayland nativo a demonstração não desenhou nenhum quadro dentro do sandbox do agente;
+  conferir na sessão do usuário (`WAYLAND_DISPLAY= cargo run …` força o XWayland).
 
 ## Decisões
 
@@ -121,6 +131,8 @@ Exemplo completo, com tudo ligado: `cargo run -p bancada-casca --example demonst
 - **Voltar/Avançar** pelo teclado e pelos botões laterais do mouse valem para o centro; cada
   painel flutuante tem os próprios botões.
 - **Conflito de atalho**: o da casca vence; entre duas Ações do app, fica com a primeira.
+- **O Ribbon mostra as Ações da área aberta** (ADR-018): o app sabe a rota aberta por
+  `ao_abrir_rota` e devolve em `abas()` as abas dela; `Pedido::AbrirAba` troca a aba ativa.
 
 ## Testes
 

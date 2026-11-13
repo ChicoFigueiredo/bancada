@@ -519,6 +519,10 @@ impl<A: AppCasca> Casca<A> {
             Pedido::Escala(e) => self.definir_aparencia(None, None, Some(e)),
             Pedido::AbrirPaleta => self.estado.paleta.abrir(),
             Pedido::FecharBastidores => self.estado.ribbon.bastidores_abertos = false,
+            Pedido::AbrirAba(id) => {
+                self.estado.ribbon.bastidores_abertos = false;
+                self.estado.ribbon.aba_ativa = Some(id);
+            }
         }
     }
 

@@ -1592,3 +1592,143 @@ pub fn opcoes_de_aparencia(ui: &mut Ui, textos: &crate::i18n::Textos) {
         }
     });
 }
+
+/// Uma aba da página de um item ("Movimentações", "Registros · a conferir", "Rastro").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbaDePagina {
+    pub id: String,
+    pub rotulo: String,
+    pub contagem: Option<u64>,
+    /// Desabilitada, com o motivo na dica ("Chega com o livro-caixa, na fatia 2").
+    pub motivo_indisponivel: Option<String>,
+}
+
+impl AbaDePagina {
+    pub fn nova(id: impl Into<String>, rotulo: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            rotulo: rotulo.into(),
+            contagem: None,
+            motivo_indisponivel: None,
+        }
+    }
+
+    pub fn contagem(mut self, n: u64) -> Self {
+        self.contagem = Some(n);
+        self
+    }
+
+    pub fn indisponivel(mut self, motivo: impl Into<String>) -> Self {
+        self.motivo_indisponivel = Some(motivo.into());
+        self
+    }
+}
+
+/// A aba guardada para a página da rota, ou a primeira disponível.
+pub fn aba_escolhida(
+    ctx: &egui::Context,
+    rota: &crate::Rota,
+    abas: &[AbaDePagina],
+) -> Option<String> {
+    let id = Id::new(("casca.abas-de-pagina", rota.como_texto()));
+    let guardada = ctx.data(|d| d.get_temp::<String>(id));
+    guardada
+        .filter(|g| {
+            abas.iter()
+                .any(|a| &a.id == g && a.motivo_indisponivel.is_none())
+        })
+        .or_else(|| {
+            abas.iter()
+                .find(|a| a.motivo_indisponivel.is_none())
+                .map(|a| a.id.clone())
+        })
+}
+
+/// As abas da página de um item, com as indisponíveis desabilitadas e o motivo na dica. A
+/// escolha fica guardada por rota (Voltar devolve a página na mesma aba). Devolve o id da aba
+/// aberta.
+pub fn abas_de_pagina(ui: &mut Ui, rota: &crate::Rota, abas: &[AbaDePagina]) -> Option<String> {
+    let atual = aba_escolhida(ui.ctx(), rota, abas);
+    let p = TemaAtivo::paleta_do_contexto(ui.ctx());
+    let (tinta, tinta_ativa, desabilitada, sublinhado, borda) = match p {
+        Some(p) => (
+            p.tinta,
+            p.destaque_tinta,
+            p.tinta_desabilitada,
+            p.destaque,
+            p.borda,
+        ),
+        None => {
+            let v = ui.visuals();
+            (
+                v.text_color(),
+                v.hyperlink_color,
+                v.weak_text_color(),
+                v.hyperlink_color,
+                v.window_stroke.color,
+            )
+        }
+    };
+    let mut nova = None;
+    let faixa = ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for aba in abas {
+            let ativa = atual.as_deref() == Some(aba.id.as_str());
+            let habilitada = aba.motivo_indisponivel.is_none();
+            let cor = if !habilitada {
+                desabilitada
+            } else if ativa {
+                tinta_ativa
+            } else {
+                tinta
+            };
+            let texto = match aba.contagem {
+                Some(n) => format!("{}  {n}", aba.rotulo),
+                None => aba.rotulo.clone(),
+            };
+            let g = ui
+                .painter()
+                .layout_no_wrap(texto, FontId::proportional(13.5), cor);
+            let (rect, resp) =
+                ui.allocate_exact_size(g.size() + vec2(20.0, 12.0), sentido(habilitada));
+            if habilitada && resp.hovered() && !ativa {
+                ui.painter().rect_filled(
+                    rect,
+                    CornerRadius::same(4),
+                    ui.visuals().widgets.hovered.weak_bg_fill,
+                );
+            }
+            ui.painter().galley(rect.center() - g.size() / 2.0, g, cor);
+            if ativa {
+                ui.painter().rect_filled(
+                    Rect::from_min_max(
+                        pos2(rect.left() + 6.0, rect.bottom() - 2.0),
+                        pos2(rect.right() - 6.0, rect.bottom()),
+                    ),
+                    CornerRadius::same(1),
+                    sublinhado,
+                );
+            }
+            let resp = match &aba.motivo_indisponivel {
+                Some(m) => resp.on_hover_text(m),
+                None => resp,
+            };
+            if habilitada && resp.clicked() {
+                nova = Some(aba.id.clone());
+            }
+        }
+    });
+    let r = faixa.response.rect;
+    ui.painter()
+        .hline(r.x_range(), r.bottom(), Stroke::new(1.0, borda));
+    if let Some(id) = nova {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(
+                Id::new(("casca.abas-de-pagina", rota.como_texto())),
+                id.clone(),
+            )
+        });
+        return Some(id);
+    }
+    atual
+}
