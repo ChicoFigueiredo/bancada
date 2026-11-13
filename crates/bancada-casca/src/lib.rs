@@ -29,7 +29,7 @@ pub mod vista;
 pub use acoes::{Acao, Disponibilidade, IdAcao, ListaDeAcoes, TipoAcao};
 pub use app::{AppCasca, PainelDock, SecaoBastidores, SegmentoStatus, Tom};
 pub use atalhos::Atalho;
-pub use casca::{Casca, ConfigCasca, Estado, ids};
+pub use casca::{Casca, ConfigCasca, Estado, Preferencias, ids};
 pub use i18n::Textos;
 pub use icones::FamiliaDeIcones;
 pub use navegacao::{Elo, GrupoNavegacao, Historico, ItemNavegacao, Local, Rota};

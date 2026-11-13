@@ -58,8 +58,9 @@ pub struct AppExemplo {
     pub rotas_abertas: Vec<(Rota, Local)>,
     pub cliques_status: Vec<String>,
     pub textos: Textos,
-    /// Filtro escolhido no menu "Estado ▾" (exemplo de Ação com menu).
+    /// Filtro escolhido no menu "Estado" (exemplo de Ação com menu).
     pub filtro: String,
+    pub preferencias_gravadas: Vec<bancada_casca::Preferencias>,
 }
 
 impl AppExemplo {
@@ -497,6 +498,10 @@ impl AppCasca for AppExemplo {
 
     fn ao_abrir_rota(&mut self, _ctx: &egui::Context, rota: &Rota, local: Local) {
         self.rotas_abertas.push((rota.clone(), local));
+    }
+
+    fn ao_mudar_preferencias(&mut self, preferencias: &bancada_casca::Preferencias) {
+        self.preferencias_gravadas.push(preferencias.clone());
     }
 
     fn ao_clicar_status(&mut self, _ctx: &egui::Context, id: &str) {

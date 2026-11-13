@@ -181,7 +181,8 @@ pub fn guias_visiveis(abas: &[Aba], com_arquivo: bool) -> Vec<Guia> {
 }
 
 /// Modo do Ribbon.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ModoRibbon {
     /// Grupos com botão grande e rótulos de grupo.
     #[default]

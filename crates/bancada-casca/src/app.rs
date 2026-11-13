@@ -200,6 +200,12 @@ pub trait AppCasca {
         let _ = (ctx, rota, local);
     }
 
+    /// As preferências da janela mudaram (Tema, Densidade, Escala, modo do Ribbon, painéis do
+    /// dock). O app grava onde quiser e devolve com [`crate::Casca::aplicar_preferencias`].
+    fn ao_mudar_preferencias(&mut self, preferencias: &crate::casca::Preferencias) {
+        let _ = preferencias;
+    }
+
     /// Um segmento clicável da barra de status foi clicado.
     fn ao_clicar_status(&mut self, ctx: &egui::Context, id: &str) {
         let _ = (ctx, id);

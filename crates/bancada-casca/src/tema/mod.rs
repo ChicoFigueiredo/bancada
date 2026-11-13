@@ -11,7 +11,10 @@ pub use tokens::{
 };
 
 /// Densidade da interface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum Densidade {
     #[default]
     Confortavel,

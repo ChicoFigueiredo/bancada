@@ -12,7 +12,7 @@ use crate::pedidos::{self, Pedido};
 use crate::ribbon::{self, EstadoRibbon, KeyTips, ModoRibbon, ResultadoKeyTip};
 use crate::tema::{CatalogoDeTemas, Densidade, ErroTokens, TemaAtivo};
 use egui::{Key, PointerButton};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// Ids das Ações da casca.
@@ -67,6 +67,16 @@ impl ConfigCasca {
             fonte_interface: None,
         }
     }
+}
+
+/// O que a janela lembra entre sessões. Serializável (JSON) para o app gravar onde quiser.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Preferencias {
+    pub tema: String,
+    pub densidade: Densidade,
+    pub escala: f32,
+    pub modo_ribbon: ModoRibbon,
+    pub paineis_visiveis: BTreeMap<String, bool>,
 }
 
 /// Detecta o toque de Alt sozinho (aperta e solta sem outra tecla nem clique no meio).
@@ -130,6 +140,7 @@ pub struct Estado {
     pub erros: Vec<String>,
     pub(crate) ultimo_titulo: String,
     pub(crate) abas_do_quadro: Vec<String>,
+    pub(crate) ultimas_preferencias: Option<Preferencias>,
 }
 
 impl Estado {
@@ -210,6 +221,7 @@ impl<A: AppCasca> Casca<A> {
                 erros: Vec::new(),
                 ultimo_titulo: String::new(),
                 abas_do_quadro: Vec::new(),
+                ultimas_preferencias: None,
             },
         })
     }
@@ -426,6 +438,39 @@ impl<A: AppCasca> Casca<A> {
                 }
             }
         }
+    }
+
+    /// As preferências atuais da janela.
+    pub fn preferencias(&self) -> Preferencias {
+        let t = &self.estado.tema;
+        // Recolhido também é preferência (o Office lembra).
+        let modo = self.estado.ribbon.modo;
+        Preferencias {
+            tema: t.tema.id.clone(),
+            densidade: t.densidade,
+            escala: t.escala,
+            modo_ribbon: modo,
+            paineis_visiveis: self
+                .estado
+                .paineis_visiveis
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+        }
+    }
+
+    /// Aplica preferências gravadas. Tema desconhecido cai no primeiro do catálogo; painel que
+    /// o app não tem mais é ignorado.
+    pub fn aplicar_preferencias(&mut self, p: &Preferencias) {
+        self.definir_aparencia(Some(&p.tema), Some(p.densidade), Some(p.escala));
+        self.estado.ribbon.definir_modo(p.modo_ribbon);
+        let conhecidos: Vec<String> = self.app.paineis().into_iter().map(|x| x.id).collect();
+        for (id, visivel) in &p.paineis_visiveis {
+            if conhecidos.contains(id) {
+                self.estado.paineis_visiveis.insert(id.clone(), *visivel);
+            }
+        }
+        self.estado.ultimas_preferencias = Some(self.preferencias());
     }
 
     /// Troca o Tema, a Densidade ou a Escala (o que vier `Some`).
@@ -668,6 +713,15 @@ impl<A: AppCasca> Casca<A> {
         self.estado.pontos_keytip.clear();
         crate::vista::desenhar_janela(self, ui, &quadro);
         self.atender_pedidos(&ctx, &quadro);
+        let agora = self.preferencias();
+        match &self.estado.ultimas_preferencias {
+            None => self.estado.ultimas_preferencias = Some(agora),
+            Some(antes) if *antes != agora => {
+                self.app.ao_mudar_preferencias(&agora);
+                self.estado.ultimas_preferencias = Some(agora);
+            }
+            Some(_) => {}
+        }
         let titulo = format!(
             "{} — {}",
             self.app.titulo_da_rota(self.estado.historico.atual()),

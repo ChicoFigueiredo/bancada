@@ -522,3 +522,28 @@ fn acao_com_menu_abre_o_menu_e_o_app_recebe_so_a_escolha() {
     vazio(&mut c, &ctx);
     assert_eq!(c.estado.menu_aberto, None);
 }
+
+#[test]
+fn preferencias_vao_e_voltam_em_json_e_o_app_e_avisado() {
+    let mut c = casca();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    pedir(&ctx, Pedido::Tema("menta".into()));
+    pedir(&ctx, Pedido::Densidade(Densidade::Compacta));
+    pedir(&ctx, Pedido::Executar(ids::painel("origens")));
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    apertar(&mut c, &ctx, Key::F1, Modifiers::COMMAND);
+    vazio(&mut c, &ctx);
+    let p = c.preferencias();
+    assert_eq!(p.tema, "menta");
+    assert_eq!(p.densidade, Densidade::Compacta);
+    assert_eq!(p.modo_ribbon, ModoRibbon::Recolhido);
+    assert_eq!(p.paineis_visiveis.get("origens"), Some(&false));
+    let json = serde_json::to_string(&p).unwrap();
+    let mut outra = casca();
+    outra.aplicar_preferencias(&serde_json::from_str(&json).unwrap());
+    assert_eq!(outra.preferencias(), p);
+    assert!(!c.app.preferencias_gravadas.is_empty(), "o app foi avisado");
+    assert_eq!(c.app.preferencias_gravadas.last(), Some(&p));
+}
