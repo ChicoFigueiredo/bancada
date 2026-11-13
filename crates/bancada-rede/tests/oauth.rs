@@ -96,7 +96,9 @@ fn o_codigo_volta_pelo_loopback_e_vira_id_token() {
     assert!(pagina.contains("Pode voltar ao Seu Bolso Feliz"));
     assert!(!format!("{codigo:?}").contains("codigo-123"));
 
+    let nonce = valor(&url, "nonce");
     let tokens = codigo.trocar(&rede).unwrap();
+    assert_eq!(tokens.nonce.expor(), nonce);
     assert_eq!(
         tokens.id_token.as_ref().map(Segredo::expor),
         Some("eyJ.fake.jwt")

@@ -182,6 +182,7 @@ pub struct FluxoOAuth {
     retorno: RetornoPorLoopback,
     verificador: Segredo,
     estado: Segredo,
+    nonce: Segredo,
     endereco: String,
 }
 
@@ -237,6 +238,9 @@ impl FluxoOAuth {
             .map_err(ErroOAuth::Retorno)?;
         let verificador = aleatorio_base64(32)?;
         let estado = aleatorio_base64(24)?;
+        // OpenID Connect: o `nonce` volta dentro do `id_token`; quem recebe o token (o
+        // servidor do app) confere que é o desta autorização, contra repetição.
+        let nonce = aleatorio_base64(24)?;
         let mut pares: Vec<(&str, String)> = vec![
             ("response_type", "code".to_owned()),
             ("client_id", provedor.id_do_cliente.clone()),
@@ -245,6 +249,7 @@ impl FluxoOAuth {
             ("code_challenge", desafio_pkce(&verificador)),
             ("scope", provedor.escopos.join(" ")),
             ("state", estado.expor().to_owned()),
+            ("nonce", nonce.expor().to_owned()),
         ];
         for (k, v) in &provedor.extras {
             pares.push((k.as_str(), v.clone()));
@@ -260,6 +265,7 @@ impl FluxoOAuth {
             retorno,
             verificador,
             estado,
+            nonce,
             endereco,
         })
     }
@@ -325,6 +331,7 @@ impl FluxoOAuth {
             provedor: self.provedor,
             codigo,
             verificador: self.verificador,
+            nonce: self.nonce,
             endereco_de_retorno,
         })
     }
@@ -335,6 +342,7 @@ pub struct CodigoDeAutorizacao {
     provedor: ProvedorOAuth,
     codigo: Segredo,
     verificador: Segredo,
+    nonce: Segredo,
     endereco_de_retorno: String,
 }
 
@@ -352,8 +360,10 @@ struct RespostaDoToken {
     expires_in: Option<u64>,
 }
 
-/// Os tokens devolvidos pelo provedor. O `Debug` diz só quais vieram.
+/// Os tokens devolvidos pelo provedor, com o `nonce` que esta autorização mandou (para quem
+/// confere o `id_token`). O `Debug` diz só quais vieram.
 pub struct TokensOAuth {
+    pub nonce: Segredo,
     pub id_token: Option<Segredo>,
     pub token_de_acesso: Option<Segredo>,
     pub token_de_renovacao: Option<Segredo>,
@@ -403,6 +413,7 @@ impl CodigoDeAutorizacao {
         let lida: RespostaDoToken =
             serde_json::from_slice(&corpo).map_err(|_| ErroOAuth::RespostaMalformada)?;
         let tokens = TokensOAuth {
+            nonce: self.nonce,
             id_token: lida.id_token.map(Segredo::novo),
             token_de_acesso: lida.access_token.map(Segredo::novo),
             token_de_renovacao: lida.refresh_token.map(Segredo::novo),
@@ -440,6 +451,7 @@ mod testes {
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A"));
         assert!(url.contains("scope=openid%20email"));
         assert!(url.contains("state="));
+        assert!(url.contains("nonce="));
         assert!(
             !url.contains(fluxo.verificador.expor()),
             "o verificador não vai na URL"
