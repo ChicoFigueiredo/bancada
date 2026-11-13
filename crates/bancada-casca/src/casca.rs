@@ -25,6 +25,8 @@ pub mod ids {
     pub const RIBBON_CLASSICO: &str = "casca.ribbon.classico";
     pub const RIBBON_SIMPLES: &str = "casca.ribbon.simples";
     pub const DENSIDADE_COMPACTA: &str = "casca.densidade.compacta";
+    pub const TELA_CHEIA: &str = "casca.tela-cheia";
+    pub const MODO_FOCO: &str = "casca.modo-foco";
     /// Prefixo das alternâncias de painel do dock: `casca.painel.<id do painel>`.
     pub const PREFIXO_PAINEL: &str = "casca.painel.";
 
@@ -83,6 +85,10 @@ pub struct Preferencias {
     pub escala: f32,
     pub modo_ribbon: ModoRibbon,
     pub paineis_visiveis: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub tela_cheia: bool,
+    #[serde(default)]
+    pub modo_foco: bool,
 }
 
 /// Detecta o toque de Alt sozinho (aperta e solta sem outra tecla nem clique no meio).
@@ -139,6 +145,11 @@ pub struct Estado {
     pub secao_bastidores: Option<String>,
     /// A Ação com menu cujo menu está aberto.
     pub menu_aberto: Option<IdAcao>,
+    /// Modo Foco (F10): só a barra de título e o centro (porte do `focus.rs` do Chess).
+    pub modo_foco: bool,
+    /// Tela cheia (F11).
+    pub tela_cheia: bool,
+    pub(crate) tela_cheia_aplicada: bool,
     /// Larguras medidas dos grupos do Ribbon (modo simples), do quadro anterior.
     pub(crate) larguras_grupos: HashMap<String, f32>,
     /// Onde cada KeyTip é desenhado neste quadro.
@@ -224,6 +235,9 @@ impl<A: AppCasca> Casca<A> {
                 alt: DetectorAlt::default(),
                 secao_bastidores: None,
                 menu_aberto: None,
+                modo_foco: false,
+                tela_cheia: false,
+                tela_cheia_aplicada: false,
                 larguras_grupos: HashMap::new(),
                 pontos_keytip: Vec::new(),
                 erros: Vec::new(),
@@ -321,6 +335,16 @@ impl<A: AppCasca> Casca<A> {
                 .icone("ribbon-simples")
                 .dica(t.t("casca-ribbon-simples-dica"))
                 .alternancia(modo == ModoRibbon::Simples),
+            Acao::nova(ids::TELA_CHEIA, t.t("casca-tela-cheia"))
+                .icone("tela-cheia")
+                .dica(t.t("casca-tela-cheia-dica"))
+                .atalho(Atalho::tecla(Key::F11))
+                .alternancia(e.tela_cheia),
+            Acao::nova(ids::MODO_FOCO, t.t("casca-modo-foco"))
+                .icone("foco")
+                .dica(t.t("casca-modo-foco-dica"))
+                .atalho(Atalho::tecla(Key::F10))
+                .alternancia(e.modo_foco),
             Acao::nova(ids::DENSIDADE_COMPACTA, t.t("casca-densidade-compacta"))
                 .icone("densidade")
                 .dica(t.t("casca-densidade-compacta-dica"))
@@ -430,6 +454,8 @@ impl<A: AppCasca> Casca<A> {
             ids::PALETA => e.paleta.alternar(),
             ids::MAPA_DE_ATALHOS => e.mapa_de_atalhos_aberto = !e.mapa_de_atalhos_aberto,
             ids::RIBBON_RECOLHER => e.ribbon.alternar_recolhido(),
+            ids::TELA_CHEIA => e.tela_cheia = !e.tela_cheia,
+            ids::MODO_FOCO => e.modo_foco = !e.modo_foco,
             ids::RIBBON_CLASSICO => e.ribbon.definir_modo(ModoRibbon::Classico),
             ids::RIBBON_SIMPLES => e.ribbon.definir_modo(ModoRibbon::Simples),
             ids::DENSIDADE_COMPACTA => {
@@ -464,6 +490,8 @@ impl<A: AppCasca> Casca<A> {
                 .iter()
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
+            tela_cheia: self.estado.tela_cheia,
+            modo_foco: self.estado.modo_foco,
         }
     }
 
@@ -472,6 +500,8 @@ impl<A: AppCasca> Casca<A> {
     pub fn aplicar_preferencias(&mut self, p: &Preferencias) {
         self.definir_aparencia(Some(&p.tema), Some(p.densidade), Some(p.escala));
         self.estado.ribbon.definir_modo(p.modo_ribbon);
+        self.estado.tela_cheia = p.tela_cheia;
+        self.estado.modo_foco = p.modo_foco;
         let conhecidos: Vec<String> = self.app.paineis().into_iter().map(|x| x.id).collect();
         for (id, visivel) in &p.paineis_visiveis {
             if conhecidos.contains(id) {
@@ -780,6 +810,10 @@ impl<A: AppCasca> Casca<A> {
             ctx.request_repaint();
         }
         self.atender_pedidos(&ctx, &quadro);
+        if self.estado.tela_cheia != self.estado.tela_cheia_aplicada {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.estado.tela_cheia));
+            self.estado.tela_cheia_aplicada = self.estado.tela_cheia;
+        }
         let agora = self.preferencias();
         match &self.estado.ultimas_preferencias {
             None => self.estado.ultimas_preferencias = Some(agora),

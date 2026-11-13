@@ -630,3 +630,26 @@ fn alt_mais_letra_vai_direto_para_a_aba() {
     apertar(&mut c, &ctx, Key::ArrowLeft, Modifiers::ALT);
     assert!(!c.estado.keytips.ativo());
 }
+
+#[test]
+fn modo_foco_e_tela_cheia_pelas_teclas_e_nas_preferencias() {
+    let mut c = casca();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    apertar(&mut c, &ctx, Key::F10, Modifiers::NONE);
+    assert!(c.estado.modo_foco);
+    vazio(&mut c, &ctx);
+    vazio(&mut c, &ctx);
+    // No Foco o Ribbon some (o painel não é desenhado neste quadro).
+    apertar(&mut c, &ctx, Key::F11, Modifiers::NONE);
+    assert!(c.estado.tela_cheia);
+    let p = c.preferencias();
+    assert!(p.modo_foco && p.tela_cheia);
+    apertar(&mut c, &ctx, Key::F10, Modifiers::NONE);
+    vazio(&mut c, &ctx);
+    assert!(!c.estado.modo_foco);
+    // Preferências antigas, sem os campos novos, ainda são lidas.
+    let antigas = r#"{"tema":"salvia","densidade":"confortavel","escala":1.0,"modo_ribbon":"classico","paineis_visiveis":{}}"#;
+    let p: bancada_casca::Preferencias = serde_json::from_str(antigas).unwrap();
+    assert!(!p.tela_cheia && !p.modo_foco);
+}

@@ -31,7 +31,7 @@ pub enum TamanhoBotao {
 
 /// Glifos de reserva para os ícones da própria casca, das fontes padrão do egui: valem quando a
 /// família do app não tem o nome.
-pub const ICONES_PADRAO_DA_CASCA: [(&str, &str); 10] = [
+pub const ICONES_PADRAO_DA_CASCA: [(&str, &str); 12] = [
     ("voltar", "⏴"),
     ("avancar", "⏵"),
     ("paleta", "🔍"),
@@ -42,6 +42,8 @@ pub const ICONES_PADRAO_DA_CASCA: [(&str, &str); 10] = [
     ("ribbon-simples", "▬"),
     ("densidade", "↕"),
     ("fechar", "✖"),
+    ("tela-cheia", "⛶"),
+    ("foco", "◎"),
 ];
 
 /// O glifo do app para o nome, na família dele; senão a reserva da casca, na proporcional.
@@ -255,6 +257,15 @@ pub(crate) fn desenhar_janela<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q:
     ui.painter()
         .rect_filled(ui.max_rect(), CornerRadius::ZERO, fundo);
     barra_de_titulo(casca, ui, q);
+    if casca.estado.modo_foco {
+        // Modo Foco: só o centro, com o botão discreto de saída.
+        centro(casca, ui);
+        sair_do_foco(casca, ui.ctx());
+        flutuantes(casca, ui.ctx());
+        desenhar_paleta(casca, ui.ctx(), q);
+        mapa_de_atalhos(casca, ui.ctx(), q);
+        return;
+    }
     let area_abas = desenhar_ribbon(casca, ui, q);
     barra_de_status(casca, ui);
     if casca.estado.ribbon.bastidores_abertos {
@@ -270,6 +281,18 @@ pub(crate) fn desenhar_janela<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui, q:
     mapa_de_atalhos(casca, ui.ctx(), q);
     menu_aberto(casca, ui.ctx(), q);
     keytips(casca, ui.ctx());
+}
+
+fn sair_do_foco<A: AppCasca>(casca: &mut Casca<A>, ctx: &egui::Context) {
+    let texto = casca.estado.textos.t("casca-sair-do-foco");
+    egui::Area::new(Id::new("casca.sair-do-foco"))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::RIGHT_TOP, vec2(-12.0, 40.0))
+        .show(ctx, |ui| {
+            if ui.button(format!("{texto} (F10)")).clicked() {
+                pedidos::executar(ui.ctx(), crate::casca::ids::MODO_FOCO);
+            }
+        });
 }
 
 /// O menu de uma Ação com menu, logo abaixo do botão que o abriu.

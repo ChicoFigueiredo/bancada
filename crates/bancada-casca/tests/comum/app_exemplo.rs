@@ -231,7 +231,12 @@ impl AppCasca for AppExemplo {
                 .grupo(Grupo::novo(
                     "janela",
                     "Janela",
-                    &[ids::DENSIDADE_COMPACTA, ids::MAPA_DE_ATALHOS],
+                    &[
+                        ids::DENSIDADE_COMPACTA,
+                        ids::MAPA_DE_ATALHOS,
+                        ids::TELA_CHEIA,
+                        ids::MODO_FOCO,
+                    ],
                 )),
             Aba::nova("item", "Item", "M")
                 .contextual(self.selecionado.is_some())
