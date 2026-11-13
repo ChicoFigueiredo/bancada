@@ -610,3 +610,23 @@ fn fonte_de_icones_do_app_e_registrada_sem_apagar_as_outras() {
     )));
     assert!(familias.contains(&egui::FontFamily::Name("serifa".into())));
 }
+
+#[test]
+fn alt_mais_letra_vai_direto_para_a_aba() {
+    let mut c = casca();
+    let ctx = egui::Context::default();
+    vazio(&mut c, &ctx);
+    apertar(&mut c, &ctx, Key::T, Modifiers::ALT);
+    vazio(&mut c, &ctx);
+    assert_eq!(c.estado.ribbon.aba_ativa.as_deref(), Some("triagem"));
+    assert!(c.estado.keytips.ativo(), "fica no nível das Ações da aba");
+    // Soltar o Alt depois de Alt+T não é toque: os KeyTips continuam.
+    vazio(&mut c, &ctx);
+    assert!(c.estado.keytips.ativo());
+    apertar(&mut c, &ctx, Key::Escape, Modifiers::NONE);
+    apertar(&mut c, &ctx, Key::Escape, Modifiers::NONE);
+    assert!(!c.estado.keytips.ativo());
+    // Alt+← continua sendo Voltar, não KeyTip.
+    apertar(&mut c, &ctx, Key::ArrowLeft, Modifiers::ALT);
+    assert!(!c.estado.keytips.ativo());
+}

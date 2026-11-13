@@ -650,6 +650,52 @@ impl<A: AppCasca> Casca<A> {
             return;
         }
 
+        // Alt+letra direto (Office): abre os KeyTips já na aba daquela letra, se nenhuma Ação
+        // usar esse atalho.
+        if !modal_aberto {
+            let letras: Vec<char> = ctx.input_mut(|i| {
+                let mut letras = Vec::new();
+                i.events.retain(|e| match e {
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if *modifiers == egui::Modifiers::ALT
+                        && quadro.acoes.por_atalho(*key, *modifiers).is_none() =>
+                    {
+                        match letra_de(*key) {
+                            Some(c) => {
+                                letras.push(c);
+                                false
+                            }
+                            None => true,
+                        }
+                    }
+                    _ => true,
+                });
+                letras
+            });
+            for c in letras {
+                for entrada in [
+                    ribbon::EntradaKeyTip::ToqueAlt,
+                    ribbon::EntradaKeyTip::Letra(c),
+                ] {
+                    if entrada == ribbon::EntradaKeyTip::ToqueAlt && self.estado.keytips.ativo() {
+                        continue;
+                    }
+                    let r = self.estado.keytips.tratar(
+                        entrada,
+                        &quadro.abas,
+                        &quadro.guias,
+                        &quadro.acesso_rapido,
+                        &quadro.acoes,
+                    );
+                    self.aplicar_keytip(ctx, quadro, r);
+                }
+            }
+        }
+
         // Esc fecha os bastidores.
         if self.estado.ribbon.bastidores_abertos
             && !modal_aberto
