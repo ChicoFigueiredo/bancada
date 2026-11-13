@@ -28,6 +28,9 @@ exceptions = [
     # Boost Software License 1.0: permissiva, aprovada pela OSI, sem cláusula copyleft.
     { crate = "clipboard-win", allow = ["BSL-1.0"] },
     { crate = "error-code", allow = ["BSL-1.0"] },
+    # bancada-rede → ureq (rustls) → webpki-roots: a lista de raízes CA da Mozilla, como dado.
+    # CDLA-Permissive-2.0 é licença permissiva de dados (a mesma exceção do Chess Studio).
+    { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [bans]
