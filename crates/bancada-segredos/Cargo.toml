@@ -1,0 +1,33 @@
+[package]
+name = "bancada-segredos"
+description = "Guarda de segredos: keyring do sistema operacional primeiro, com fallback em arquivo cifrado por senha-mestra (Argon2id + XChaCha20-Poly1305)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Chaveiro do sistema falso, em memória, e custo baixo do Argon2id. Só para testes: nenhuma
+# crate liga esta feature em `[dependencies]` (teste estático em tests/estatico.rs).
+testes = []
+
+[dependencies]
+# Keyring do sistema operacional (MIT OR Apache-2.0), a mesma do chess-vault: Secret Service
+# por zbus (Rust puro, sem libdbus) no Linux, Credential Manager no Windows, Keychain no macOS.
+keyring = "4.2"
+# Arquivo cifrado (RustCrypto, MIT OR Apache-2.0): Argon2id para a senha-mestra e
+# XChaCha20-Poly1305 para o conteúdo.
+argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["zeroize"] }
+getrandom = "0.4"
+zeroize = "1.9"
+# Só para ler o conteúdo do formato 1 (chess-vault) e o índice de rótulos.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+bancada-segredos = { path = ".", features = ["testes"] }
+
+[lints]
+workspace = true
