@@ -37,3 +37,4 @@ casca-aparencia-compacta = Compacta
 casca-aparencia-escala = Escala da interface
 casca-dock-vazio = Nenhum painel à mostra. Ligue um em Exibir.
 casca-acesso-rapido = Barra de Acesso Rápido
+casca-mapa-atalhos-outros = Alt · KeyTips   |   botões laterais do mouse · Voltar / Avançar   |   Ctrl+clique num nome · painel flutuante

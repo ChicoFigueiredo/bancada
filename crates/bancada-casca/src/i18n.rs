@@ -113,6 +113,27 @@ mod testes {
     }
 
     #[test]
+    fn todo_texto_da_casca_usado_no_codigo_existe_no_ftl() {
+        let t = Textos::pt_br();
+        let fontes = [
+            include_str!("casca.rs"),
+            include_str!("vista.rs"),
+            include_str!("paleta.rs"),
+        ];
+        let mut usados = 0;
+        for fonte in fontes {
+            for (pos, _) in fonte.match_indices("(\"casca-") {
+                let resto = &fonte[pos + 2..];
+                let fim = resto.find('"').unwrap_or(0);
+                let id = &resto[..fim];
+                assert!(t.tem(id), "falta no casca.ftl: {id}");
+                usados += 1;
+            }
+        }
+        assert!(usados > 20, "achou só {usados} usos");
+    }
+
+    #[test]
     fn o_app_acrescenta_os_dele_sem_sobrescrever() {
         let mut t = Textos::pt_br();
         t.acrescentar("sbf-triagem = Triagem").unwrap();

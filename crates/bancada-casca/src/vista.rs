@@ -193,6 +193,9 @@ pub fn botao_acao(
         ui.ctx()
             .data_mut(|d| d.insert_temp(Id::new(("casca.menu", acao.id.as_str())), rect));
     }
+    resposta.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, habilitada, &acao.rotulo)
+    });
     let resposta = resposta.on_hover_text(acao.texto_da_dica());
     if habilitada && resposta.clicked() {
         pedidos::executar(ui.ctx(), acao.id.clone());
@@ -510,6 +513,9 @@ fn guia_ribbon(
             p.destaque,
         );
     }
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selecionada, rotulo)
+    });
     resp
 }
 
@@ -887,6 +893,9 @@ fn item_de_navegacao(
             p.tinta_suave,
         );
     }
+    resp.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Link, habilitado, &item.rotulo)
+    });
     let resp = match &item.indisponivel {
         Some(ind) => resp.on_hover_text(&ind.motivo),
         None => resp,
@@ -1472,26 +1481,43 @@ fn mapa_de_atalhos<A: AppCasca>(casca: &mut Casca<A>, ctx: &egui::Context, q: &Q
     let p = tema.paleta;
     let titulo = casca.estado.textos.t("casca-mapa-atalhos");
     let da_janela = casca.estado.textos.t("casca-mapa-atalhos-casca");
+    let outros = casca.estado.textos.t("casca-mapa-atalhos-outros");
     let mapa = q.acoes.mapa_de_atalhos();
     let resposta = egui::Modal::new(Id::new("casca.mapa-atalhos")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.heading(titulo);
         ui.add_space(8.0);
-        egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
-            for (cabecalho, da_casca) in [(da_janela.as_str(), true), (casca.estado.titulo.as_str(), false)] {
-                ui.label(RichText::new(cabecalho).small().strong().color(p.tinta_suave));
-                egui::Grid::new(("casca.mapa", da_casca)).striped(true).num_columns(2).show(ui, |ui| {
-                    for (atalho, rotulo, id) in mapa.iter().filter(|(_, _, id)| id.starts_with("casca.") == da_casca) {
-                        ui.label(RichText::new(atalho.to_string()).monospace());
-                        ui.label(*rotulo).on_hover_text(*id);
-                        ui.end_row();
-                    }
-                });
-                ui.add_space(8.0);
-            }
-            // KeyTips e mouse, que não são Ações.
-            ui.label(RichText::new("Alt · KeyTips   |   Mouse ◀ ▶ · Voltar / Avançar   |   Ctrl+clique · painel flutuante").small().color(p.tinta_suave));
-        });
+        egui::ScrollArea::vertical()
+            .max_height(480.0)
+            .show(ui, |ui| {
+                for (cabecalho, da_casca) in [
+                    (da_janela.as_str(), true),
+                    (casca.estado.titulo.as_str(), false),
+                ] {
+                    ui.label(
+                        RichText::new(cabecalho)
+                            .small()
+                            .strong()
+                            .color(p.tinta_suave),
+                    );
+                    egui::Grid::new(("casca.mapa", da_casca))
+                        .striped(true)
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (atalho, rotulo, id) in mapa
+                                .iter()
+                                .filter(|(_, _, id)| id.starts_with("casca.") == da_casca)
+                            {
+                                ui.label(RichText::new(atalho.to_string()).monospace());
+                                ui.label(*rotulo).on_hover_text(*id);
+                                ui.end_row();
+                            }
+                        });
+                    ui.add_space(8.0);
+                }
+                // KeyTips e mouse, que não são Ações.
+                ui.label(RichText::new(outros.as_str()).small().color(p.tinta_suave));
+            });
     });
     if resposta.should_close() {
         casca.estado.mapa_de_atalhos_aberto = false;
