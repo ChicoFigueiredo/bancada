@@ -19,9 +19,30 @@ allow = [
 ]
 confidence-threshold = 0.9
 # Exceções por crate, só quando inevitáveis e justificadas aqui.
-exceptions = []
+exceptions = [
+    # bancada-casca → egui → epaint: as fontes padrão do egui (Ubuntu-Light, Noto Emoji,
+    # emoji-icon-font) vêm como dado, não como código. OFL-1.1 e Ubuntu Font Licence são
+    # licenças de fonte permissivas para embutir; o código do crate é MIT OR Apache-2.0.
+    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
+    # bancada-casca → eframe → egui-winit → arboard (área de transferência), só no Windows.
+    # Boost Software License 1.0: permissiva, aprovada pela OSI, sem cláusula copyleft.
+    { crate = "clipboard-win", allow = ["BSL-1.0"] },
+    { crate = "error-code", allow = ["BSL-1.0"] },
+]
 
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true
+
+[advisories]
+# Cada ignore é justificado aqui.
+ignore = [
+    # zbus_names, zvariant e zvariant_derive marcados "sem manutenção" (não é vulnerabilidade).
+    # Chegam pelo D-Bus no Linux: acessibilidade do egui (accesskit_unix, bancada-casca) e
+    # Secret Service do keyring (bancada-segredos). Sem alternativa até o zbus seguir a nova
+    # linha; reavaliar ao atualizar egui/eframe e keyring.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant sem manutenção, via D-Bus (accesskit e keyring); ver comentário acima" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names sem manutenção, via D-Bus (accesskit e keyring); ver comentário acima" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive sem manutenção, via D-Bus (accesskit e keyring); ver comentário acima" },
+]
