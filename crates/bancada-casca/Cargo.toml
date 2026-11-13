@@ -1,0 +1,21 @@
+[package]
+name = "bancada-casca"
+description = "Shell desktop em egui/eframe: Ribbon, Ações, Paleta, KeyTips, navegação relacional, dock, barra de status, temas por tokens e i18n Fluent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui = "0.36.2"
+# Renderizador glow (OpenGL): compila bem mais rápido que wgpu e suporta viewports múltiplos.
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "glow", "links", "wayland", "x11"] }
+egui_tiles = "0.17.1"
+fluent-bundle = "0.16.0"
+unic-langid = { version = "0.9.6", features = ["macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
