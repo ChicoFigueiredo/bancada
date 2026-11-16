@@ -27,6 +27,8 @@ pub enum Pedido {
     FecharBastidores,
     /// Torna ativa uma aba do Ribbon (por exemplo a contextual que acabou de aparecer).
     AbrirAba(String),
+    /// Mostra um painel do dock e o torna a aba ativa da pilha dele.
+    MostrarPainel(String),
 }
 
 fn id_fila() -> egui::Id {
@@ -60,6 +62,11 @@ pub fn abrir(ctx: &egui::Context, rota: impl Into<Rota>) {
 /// Abre a rota num painel flutuante novo.
 pub fn abrir_flutuante(ctx: &egui::Context, rota: impl Into<Rota>) {
     pedir(ctx, Pedido::AbrirFlutuante(rota.into()));
+}
+
+/// Mostra o painel do dock (por id) e o torna a aba ativa da pilha dele.
+pub fn mostrar_painel(ctx: &egui::Context, id: impl Into<String>) {
+    pedir(ctx, Pedido::MostrarPainel(id.into()));
 }
 
 /// Executa uma Ação da lista única.

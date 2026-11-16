@@ -1136,6 +1136,11 @@ fn dock<A: AppCasca>(casca: &mut Casca<A>, ui: &mut Ui) {
                 .or_insert(p.visivel_por_padrao);
         }
     }
+    if let Some(id) = casca.estado.painel_a_ativar.take()
+        && let Some(arvore) = casca.estado.dock.as_mut()
+    {
+        crate::casca::ativar_painel(arvore, &id);
+    }
     let algum = paineis.iter().any(|p| casca.painel_visivel(&p.id));
     if !algum {
         return;

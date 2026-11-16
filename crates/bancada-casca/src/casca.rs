@@ -89,6 +89,40 @@ pub struct Preferencias {
     pub tela_cheia: bool,
     #[serde(default)]
     pub modo_foco: bool,
+    /// O arranjo do dock (abas arrastadas, divisões, aba ativa de cada pilha). Só vale se o
+    /// conjunto de painéis bater com o do app; arquivo antigo ou ilegível vale `None`.
+    #[serde(default, deserialize_with = "dock_tolerante")]
+    pub dock: Option<egui_tiles::Tree<String>>,
+}
+
+/// Uma árvore que não deserializa não pode derrubar as outras preferências.
+fn dock_tolerante<'de, D>(d: D) -> Result<Option<egui_tiles::Tree<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = <serde_json::Value as serde::Deserialize>::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok().flatten())
+}
+
+/// A árvore guardada só serve se tem exatamente os painéis do app, cada um uma vez.
+pub(crate) fn dock_confere(arvore: &egui_tiles::Tree<String>, ids: &[String]) -> bool {
+    let mut na_arvore: Vec<&String> = arvore
+        .tiles
+        .iter()
+        .filter_map(|(_, t)| match t {
+            egui_tiles::Tile::Pane(id) => Some(id),
+            egui_tiles::Tile::Container(_) => None,
+        })
+        .collect();
+    let mut esperados: Vec<&String> = ids.iter().collect();
+    na_arvore.sort();
+    esperados.sort();
+    arvore.root().is_some() && na_arvore == esperados
+}
+
+/// Torna o painel a aba ativa da pilha dele (e das pilhas que o contêm).
+pub(crate) fn ativar_painel(arvore: &mut egui_tiles::Tree<String>, id: &str) {
+    arvore.make_active(|_, t| matches!(t, egui_tiles::Tile::Pane(p) if p == id));
 }
 
 /// Detecta o toque de Alt sozinho (aperta e solta sem outra tecla nem clique no meio).
@@ -141,6 +175,8 @@ pub struct Estado {
     pub(crate) paineis_visiveis: HashMap<String, bool>,
     pub(crate) dock: Option<egui_tiles::Tree<String>>,
     pub(crate) assinatura_dock: Vec<String>,
+    /// Painel a tornar aba ativa assim que o dock existir (pedido antes da árvore montada).
+    pub(crate) painel_a_ativar: Option<String>,
     pub(crate) alt: DetectorAlt,
     pub secao_bastidores: Option<String>,
     /// A Ação com menu cujo menu está aberto.
@@ -232,6 +268,7 @@ impl<A: AppCasca> Casca<A> {
                 paineis_visiveis,
                 dock: None,
                 assinatura_dock: Vec::new(),
+                painel_a_ativar: None,
                 alt: DetectorAlt::default(),
                 secao_bastidores: None,
                 menu_aberto: None,
@@ -492,6 +529,7 @@ impl<A: AppCasca> Casca<A> {
                 .collect(),
             tela_cheia: self.estado.tela_cheia,
             modo_foco: self.estado.modo_foco,
+            dock: self.estado.dock.clone(),
         }
     }
 
@@ -502,13 +540,33 @@ impl<A: AppCasca> Casca<A> {
         self.estado.ribbon.definir_modo(p.modo_ribbon);
         self.estado.tela_cheia = p.tela_cheia;
         self.estado.modo_foco = p.modo_foco;
-        let conhecidos: Vec<String> = self.app.paineis().into_iter().map(|x| x.id).collect();
+        let paineis = self.app.paineis();
+        let conhecidos: Vec<String> = paineis.iter().map(|x| x.id.clone()).collect();
         for (id, visivel) in &p.paineis_visiveis {
             if conhecidos.contains(id) {
                 self.estado.paineis_visiveis.insert(id.clone(), *visivel);
             }
         }
+        if let Some(arvore) = p.dock.as_ref().filter(|a| dock_confere(a, &conhecidos)) {
+            self.estado.dock = Some(arvore.clone());
+            self.estado.assinatura_dock = conhecidos;
+            for x in &paineis {
+                self.estado
+                    .paineis_visiveis
+                    .entry(x.id.clone())
+                    .or_insert(x.visivel_por_padrao);
+            }
+        }
         self.estado.ultimas_preferencias = Some(self.preferencias());
+    }
+
+    /// Mostra o painel do dock e o torna a aba ativa da pilha dele.
+    pub fn mostrar_painel(&mut self, id: &str) {
+        self.estado.paineis_visiveis.insert(id.to_owned(), true);
+        match self.estado.dock.as_mut() {
+            Some(arvore) => ativar_painel(arvore, id),
+            None => self.estado.painel_a_ativar = Some(id.to_owned()),
+        }
     }
 
     /// Troca o Tema, a Densidade ou a Escala (o que vier `Some`).
@@ -557,6 +615,7 @@ impl<A: AppCasca> Casca<A> {
             Pedido::Escala(e) => self.definir_aparencia(None, None, Some(e)),
             Pedido::AbrirPaleta => self.estado.paleta.abrir(),
             Pedido::FecharBastidores => self.estado.ribbon.bastidores_abertos = false,
+            Pedido::MostrarPainel(id) => self.mostrar_painel(&id),
             Pedido::AbrirAba(id) => {
                 self.estado.ribbon.bastidores_abertos = false;
                 self.estado.ribbon.aba_ativa = Some(id);

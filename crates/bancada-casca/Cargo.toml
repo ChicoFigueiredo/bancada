@@ -12,7 +12,7 @@ egui = "0.36.2"
 # Renderizador glow (OpenGL) por padrão: compila bem mais rápido que wgpu e suporta viewports
 # múltiplos. A feature `wgpu` troca o renderizador (ver [features]).
 eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "x11"] }
-egui_tiles = "0.17.1"
+egui_tiles = { version = "0.17.1", features = ["serde"] }
 fluent-bundle = "0.16.0"
 unic-langid = { version = "0.9.6", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }

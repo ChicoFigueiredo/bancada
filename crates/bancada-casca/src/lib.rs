@@ -34,7 +34,7 @@ pub use i18n::Textos;
 pub use icones::FamiliaDeIcones;
 pub use navegacao::{Elo, GrupoNavegacao, Historico, ItemNavegacao, Local, Rota};
 pub use paleta::Destino;
-pub use pedidos::{Pedido, abrir, abrir_flutuante, executar, link_item, pedir};
+pub use pedidos::{Pedido, abrir, abrir_flutuante, executar, link_item, mostrar_painel, pedir};
 pub use ribbon::{Aba, Grupo, ModoRibbon};
 pub use tema::{Densidade, Paleta, TemaAtivo};
 

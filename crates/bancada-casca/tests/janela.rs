@@ -653,3 +653,72 @@ fn modo_foco_e_tela_cheia_pelas_teclas_e_nas_preferencias() {
     let p: bancada_casca::Preferencias = serde_json::from_str(antigas).unwrap();
     assert!(!p.tela_cheia && !p.modo_foco);
 }
+
+#[test]
+fn o_arranjo_do_dock_vai_e_volta_nas_preferencias() {
+    let ctx = egui::Context::default();
+    let mut c = casca();
+    vazio(&mut c, &ctx);
+    let p = c.preferencias();
+    assert!(p.dock.is_some(), "o dock montado entra nas preferências");
+    let json = serde_json::to_string(&p).unwrap();
+    let volta: bancada_casca::Preferencias = serde_json::from_str(&json).unwrap();
+    assert_eq!(volta, p);
+
+    let mut outra = casca();
+    outra.aplicar_preferencias(&volta);
+    assert_eq!(outra.preferencias().dock, p.dock);
+}
+
+#[test]
+fn preferencias_antigas_sem_dock_ou_com_dock_ruim_ainda_carregam() {
+    let antigo = r#"{"tema":"salvia","densidade":"confortavel","escala":1.0,
+        "modo_ribbon":"classico","paineis_visiveis":{}}"#;
+    let p: bancada_casca::Preferencias = serde_json::from_str(antigo).unwrap();
+    assert!(p.dock.is_none());
+    let ruim = r#"{"tema":"salvia","densidade":"confortavel","escala":1.0,
+        "modo_ribbon":"classico","paineis_visiveis":{},"dock":{"lixo":1}}"#;
+    let p: bancada_casca::Preferencias = serde_json::from_str(ruim).unwrap();
+    assert!(p.dock.is_none());
+}
+
+#[test]
+fn dock_guardado_com_outros_paineis_e_ignorado() {
+    let ctx = egui::Context::default();
+    let mut c = casca();
+    vazio(&mut c, &ctx);
+    let mut p = c.preferencias();
+    let mut dock = p.dock.take().unwrap();
+    // Some um painel: o conjunto deixa de bater.
+    let extra = dock.tiles.insert_pane("painel-que-nao-existe".to_owned());
+    if let Some(raiz) = dock.root() {
+        dock.move_tile_to_container(extra, raiz, 0, true);
+    }
+    p.dock = Some(dock);
+    let mut outra = casca();
+    outra.aplicar_preferencias(&p);
+    assert!(
+        outra.preferencias().dock.is_none(),
+        "sem árvore aceita, o dock nasce no padrão no primeiro quadro"
+    );
+    vazio(&mut outra, &ctx);
+    assert!(outra.preferencias().dock.is_some());
+}
+
+#[test]
+fn mostrar_painel_o_torna_a_aba_ativa_da_pilha() {
+    let ctx = egui::Context::default();
+    let mut c = casca();
+    vazio(&mut c, &ctx);
+    // "detalhe" e "origens" dividem a pilha 0: a primeira aba é a ativa de início.
+    pedir(&ctx, Pedido::MostrarPainel("origens".into()));
+    vazio(&mut c, &ctx);
+    assert!(c.painel_visivel("origens"));
+    let dock = c.preferencias().dock.unwrap();
+    let origens = dock
+        .tiles
+        .iter()
+        .find_map(|(id, t)| matches!(t, egui_tiles::Tile::Pane(p) if p == "origens").then_some(*id))
+        .unwrap();
+    assert!(dock.active_tiles().contains(&origens));
+}
