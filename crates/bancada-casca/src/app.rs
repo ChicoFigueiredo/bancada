@@ -175,6 +175,13 @@ pub trait AppCasca {
         let _ = (ui, id);
     }
 
+    /// Desenha um controle do app dentro de um grupo do Ribbon (ver
+    /// [`crate::ribbon::Grupo::com_controle`]): seletor com busca, campo, deslizante. `compacto`
+    /// vem no modo simples (uma linha só); no clássico há três linhas de altura.
+    fn desenhar_controle_ribbon(&mut self, ui: &mut egui::Ui, id: &str, compacto: bool) {
+        let _ = (ui, id, compacto);
+    }
+
     /// Os segmentos da barra de status.
     fn status(&self) -> Vec<SegmentoStatus> {
         Vec::new()

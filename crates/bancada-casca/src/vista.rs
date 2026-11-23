@@ -574,6 +574,9 @@ fn corpo_do_ribbon<A: AppCasca>(
                 ui.vertical(|ui| {
                     let linha = ui.horizontal_top(|ui| {
                         ui.set_min_height(alt_acoes.max(64.0));
+                        if let Some(c) = &grupo.controle {
+                            ui.vertical(|ui| casca.app.desenhar_controle_ribbon(ui, c, false));
+                        }
                         ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                         let mut acoes = grupo.acoes.iter().filter_map(|id| q.acoes.get(id));
                         if let Some(primeira) = acoes.next() {
@@ -627,6 +630,9 @@ fn corpo_do_ribbon<A: AppCasca>(
                     ui.separator();
                 }
                 let r = ui.horizontal(|ui| {
+                    if let Some(c) = &grupo.controle {
+                        casca.app.desenhar_controle_ribbon(ui, c, true);
+                    }
                     ui.spacing_mut().item_spacing.x = 2.0;
                     for acao in grupo.acoes.iter().filter_map(|id| q.acoes.get(id)) {
                         let r = botao_acao(ui, acao, TamanhoBotao::Pequeno, &icones, p, m);

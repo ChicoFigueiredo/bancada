@@ -19,6 +19,9 @@ pub struct Grupo {
     pub id: String,
     pub rotulo: String,
     pub acoes: Vec<IdAcao>,
+    /// Controle desenhado pelo próprio app (seletor com busca, campo, deslizante), antes das
+    /// Ações do grupo. A casca chama [`crate::AppCasca::desenhar_controle_ribbon`] com este id.
+    pub controle: Option<String>,
 }
 
 impl Grupo {
@@ -27,7 +30,14 @@ impl Grupo {
             id: id.into(),
             rotulo: rotulo.into(),
             acoes: acoes.iter().map(|a| (*a).to_owned()).collect(),
+            controle: None,
         }
+    }
+
+    /// Acrescenta um controle desenhado pelo app (ver [`Grupo::controle`]).
+    pub fn com_controle(mut self, id: impl Into<String>) -> Self {
+        self.controle = Some(id.into());
+        self
     }
 }
 
@@ -492,6 +502,14 @@ impl KeyTips {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn grupo_pode_ter_controle_do_app() {
+        let g = Grupo::novo("instrumento", "Instrumento", &[]).com_controle("app.seletor");
+        assert_eq!(g.controle.as_deref(), Some("app.seletor"));
+        assert!(g.acoes.is_empty());
+        assert_eq!(Grupo::novo("x", "X", &["a"]).controle, None);
+    }
     use crate::acoes::Acao;
 
     fn acoes() -> ListaDeAcoes {

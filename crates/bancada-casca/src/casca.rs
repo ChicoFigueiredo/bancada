@@ -58,6 +58,11 @@ pub struct ConfigCasca {
     /// app também pode chamar `ctx.add_font` quando quiser; só não deve chamar `set_fonts`
     /// depois do primeiro quadro, senão some a família de ícones da casca.
     pub definicoes_de_fontes: Option<egui::FontDefinitions>,
+    /// Ícone da janela (RGBA). `None` = o padrão do eframe.
+    pub icone_janela: Option<egui::IconData>,
+    /// Id do app para o gerenciador de janelas (`app_id` no Wayland, `WM_CLASS` no X11); deve
+    /// casar com o `.desktop` para o ícone aparecer na barra de tarefas.
+    pub id_app: Option<String>,
 }
 
 impl ConfigCasca {
@@ -73,6 +78,8 @@ impl ConfigCasca {
             textos: Textos::pt_br(),
             fonte_interface: None,
             definicoes_de_fontes: None,
+            icone_janela: None,
+            id_app: None,
         }
     }
 }
@@ -166,6 +173,8 @@ pub struct Estado {
     pub(crate) fonte_interface: Option<Vec<u8>>,
     pub(crate) definicoes_de_fontes: Option<egui::FontDefinitions>,
     pub(crate) fontes_instaladas: bool,
+    pub(crate) icone_janela: Option<egui::IconData>,
+    pub(crate) id_app: Option<String>,
     pub ribbon: EstadoRibbon,
     pub keytips: KeyTips,
     pub paleta: EstadoPaleta,
@@ -259,6 +268,8 @@ impl<A: AppCasca> Casca<A> {
                 fonte_interface: config.fonte_interface,
                 definicoes_de_fontes: config.definicoes_de_fontes,
                 fontes_instaladas: false,
+                icone_janela: config.icone_janela,
+                id_app: config.id_app,
                 ribbon: EstadoRibbon::default(),
                 keytips: KeyTips::default(),
                 paleta: EstadoPaleta::default(),
@@ -291,11 +302,18 @@ impl<A: AppCasca> Casca<A> {
         A: 'static,
     {
         let titulo = self.estado.titulo.clone();
+        let mut viewport = egui::ViewportBuilder::default()
+            .with_title(titulo.clone())
+            .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([720.0, 480.0]);
+        if let Some(icone) = self.estado.icone_janela.clone() {
+            viewport = viewport.with_icon(icone);
+        }
+        if let Some(id) = self.estado.id_app.clone() {
+            viewport = viewport.with_app_id(id);
+        }
         let opcoes = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_title(titulo.clone())
-                .with_inner_size([1280.0, 800.0])
-                .with_min_inner_size([720.0, 480.0]),
+            viewport,
             ..Default::default()
         };
         eframe::run_native(&titulo, opcoes, Box::new(move |_cc| Ok(Box::new(self))))
