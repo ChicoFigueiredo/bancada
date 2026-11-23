@@ -401,6 +401,10 @@ pub fn montar_estilo(tema: &TemaAtivo) -> Style {
     sp.icon_width = m.icone_p;
     sp.icon_width_inner = m.icone_p - 6.0;
     sp.tooltip_width = 320.0;
+    // Deslizantes: alça redonda e trilho preenchido até a alça na cor de destaque (o trilho
+    // vazio sozinho some em fundos escuros).
+    estilo.visuals.handle_shape = egui::style::HandleShape::Circle;
+    estilo.visuals.slider_trailing_fill = true;
     estilo.interaction.tooltip_delay = 0.5;
     estilo.animation_time = 0.12;
     estilo
