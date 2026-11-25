@@ -7,9 +7,18 @@
 
 pub mod cdp;
 pub mod chrome;
+pub mod erro;
+#[cfg(any(test, feature = "testes"))]
 pub mod falso;
 pub mod luau;
 pub mod navegador;
 pub mod pagina;
 pub mod politica;
+#[cfg(any(test, feature = "testes"))]
 pub mod site_falso;
+pub mod url;
+
+pub use erro::{ErroDoNavegador, Resultado};
+pub use navegador::Navegador;
+pub use pagina::{MotivoDePausa, Pagina};
+pub use politica::{Bloqueio, Candidato, Politica};
