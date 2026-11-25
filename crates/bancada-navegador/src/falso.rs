@@ -44,6 +44,9 @@ pub struct NavegadorFalso {
     /// URL → nome da página.
     pub rotas: HashMap<String, String>,
     pub tabelas: HashMap<String, Vec<Vec<String>>>,
+    /// O texto visível de um seletor (para `texto`); sem entrada, vale o texto do elemento da
+    /// página atual.
+    pub textos: HashMap<String, String>,
     pub atual: String,
     /// O que aconteceu, em ordem (sem valores).
     pub chamadas: Vec<String>,
@@ -153,6 +156,32 @@ impl Navegador for NavegadorFalso {
         let caminho = pasta.join(nome);
         std::fs::write(&caminho, bytes)?;
         Ok(caminho)
+    }
+
+    fn texto(&mut self, seletor: &str) -> Resultado<String> {
+        self.chamadas.push(format!("texto {seletor}"));
+        // Como o Chrome: campo de formulário nunca devolve o valor.
+        let campo = self.paginas.get(self.efetiva()).is_some_and(|p| {
+            p.formularios
+                .iter()
+                .any(|f| f.campos.iter().any(|c| c.seletor == seletor))
+        }) || self
+            .elementos
+            .get(seletor)
+            .is_some_and(|e| e.candidato.eh_campo);
+        if campo {
+            return Err(ErroDoNavegador::Navegador(
+                "texto não lê campo de formulário".into(),
+            ));
+        }
+        if let Some(t) = self.textos.get(seletor) {
+            return Ok(t.clone());
+        }
+        self.paginas
+            .get(self.efetiva())
+            .and_then(|p| p.elementos.iter().find(|e| e.seletor == seletor))
+            .map(|e| e.texto.clone())
+            .ok_or_else(|| ErroDoNavegador::Navegador("o elemento não existe".into()))
     }
 
     fn ler_tabela(&mut self, seletor: &str) -> Resultado<Vec<Vec<String>>> {
