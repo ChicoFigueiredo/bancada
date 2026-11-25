@@ -14,7 +14,6 @@ pub mod luau;
 pub mod navegador;
 pub mod pagina;
 pub mod politica;
-#[cfg(any(test, feature = "testes"))]
 pub mod site_falso;
 pub mod url;
 

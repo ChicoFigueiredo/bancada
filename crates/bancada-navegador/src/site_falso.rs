@@ -5,13 +5,19 @@
 //!
 //! O servidor conta quantas vezes cada rota perigosa foi alcançada: um teste de bloqueio
 //! afirma que o contador é zero.
+//!
+//! Além do banco de mentira, [`PortalDeContracheque`] é um portal de contracheque também de
+//! mentira (login por CPF e senha, segunda etapa por e-mail, token ou CAPTCHA, lista de meses
+//! e download de PDF fictício), para provar o roteiro escrito sem tocar site real. O módulo
+//! está sempre compilado: o comando de teste do roteiro escrito o usa em produção, contra
+//! `127.0.0.1`, sem rede externa.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 /// O CPF que o site aceita (só dígitos; o formulário tira a pontuação).
 pub const CPF_DO_SITE: &str = "12345678909";
@@ -482,6 +488,509 @@ fn atender(mut c: TcpStream, e: &Estado) -> std::io::Result<()> {
         (_, "/painel" | "/extratos" | "/extrato-2026-10.pdf") => {
             redirecionar(&mut c, "/login", None)
         }
+        _ => responder(&mut c, "404 Not Found", "", "text/plain", b"nao encontrado"),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Portal de contracheque (fictício)
+// ---------------------------------------------------------------------------------------------
+
+/// O nome lógico do portal: `portal.exemplo.test` não resolve em DNS nenhum; o portal serve em
+/// `127.0.0.1:porta`, e o roteiro de exemplo é testado com este nome no manifesto.
+pub const HOST_LOGICO_DO_PORTAL: &str = "portal.exemplo.test";
+
+/// Segunda etapa de autenticação do portal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MfaDoPortal {
+    /// Código de 6 dígitos "enviado por e-mail" (campo `#codigo`).
+    #[default]
+    Email,
+    /// Código do "app autenticador" (campo `#token`): o roteiro tem de pausar para o usuário.
+    /// O código aceito é o mesmo de [`PortalDeContracheque::codigo_gerado`].
+    Token,
+    /// Página com CAPTCHA ("Não sou um robô"): o roteiro tem de pausar. O usuário "resolve"
+    /// marcando a caixa, ou o teste faz `POST /_teste/liberar`.
+    Captcha,
+}
+
+/// Como o portal se comporta.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// O CPF aceito (só dígitos; o formulário tira a pontuação).
+    pub cpf: String,
+    /// A senha aceita.
+    pub senha: String,
+    /// A segunda etapa.
+    pub mfa: MfaDoPortal,
+    /// Se `Some`, todo login certo gera este código (6 dígitos, por exemplo `"482913"`);
+    /// se `None`, um código aleatório de 6 dígitos a cada login certo.
+    pub codigo_fixo: Option<String>,
+    /// Os meses publicados, como `AAAA-MM`. Meses fora dessa lista não existem no portal
+    /// (o roteiro de exemplo trata o "mês ainda não publicado").
+    pub meses: Vec<String>,
+}
+
+impl Config {
+    /// Credenciais fictícias dadas pelo teste; MFA por e-mail, código aleatório e os meses
+    /// `2026-10` e `2026-11`.
+    #[must_use]
+    pub fn nova(cpf: &str, senha: &str) -> Self {
+        Self {
+            cpf: cpf.chars().filter(char::is_ascii_digit).collect(),
+            senha: senha.to_owned(),
+            mfa: MfaDoPortal::Email,
+            codigo_fixo: None,
+            meses: vec!["2026-10".to_owned(), "2026-11".to_owned()],
+        }
+    }
+
+    /// Troca a segunda etapa.
+    #[must_use]
+    pub fn com_mfa(mut self, mfa: MfaDoPortal) -> Self {
+        self.mfa = mfa;
+        self
+    }
+
+    /// Fixa o código gerado a cada login certo.
+    #[must_use]
+    pub fn com_codigo(mut self, codigo: &str) -> Self {
+        self.codigo_fixo = Some(codigo.to_owned());
+        self
+    }
+
+    /// Troca os meses publicados (`AAAA-MM`; o que não tiver esse formato é ignorado).
+    #[must_use]
+    pub fn com_meses(mut self, meses: &[&str]) -> Self {
+        self.meses = meses.iter().map(|m| (*m).to_owned()).collect();
+        self
+    }
+}
+
+impl Default for Config {
+    /// [`CPF_DO_SITE`] e [`SENHA_DO_SITE`].
+    fn default() -> Self {
+        Self::nova(CPF_DO_SITE, SENHA_DO_SITE)
+    }
+}
+
+#[derive(Debug)]
+struct EstadoDoPortal {
+    config: Config,
+    /// O último código gerado e quando (a `CaixaFalsa` dos testes simula o e-mail com isto).
+    codigo: Mutex<Option<(String, SystemTime)>>,
+    /// O usuário "resolveu" o token ou o CAPTCHA.
+    liberado: AtomicBool,
+    baixados: Mutex<Vec<String>>,
+    proibidos: Mutex<Vec<String>>,
+    logins: AtomicUsize,
+    logins_recusados: AtomicUsize,
+    codigos_recusados: AtomicUsize,
+    parar: AtomicBool,
+}
+
+fn travar<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// O portal de contracheque de mentira. Encerra o servidor no `Drop`.
+#[derive(Debug)]
+pub struct PortalDeContracheque {
+    porta: u16,
+    estado: Arc<EstadoDoPortal>,
+    fio: Option<JoinHandle<()>>,
+}
+
+/// `AAAA-MM` com mês de 01 a 12.
+fn mes_valido(m: &str) -> bool {
+    let b = m.as_bytes();
+    b.len() == 7
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && matches!(
+            &m[5..],
+            "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+        )
+}
+
+fn nome_do_mes(m: &str) -> String {
+    let nome = match &m[5..] {
+        "01" => "Janeiro",
+        "02" => "Fevereiro",
+        "03" => "Março",
+        "04" => "Abril",
+        "05" => "Maio",
+        "06" => "Junho",
+        "07" => "Julho",
+        "08" => "Agosto",
+        "09" => "Setembro",
+        "10" => "Outubro",
+        "11" => "Novembro",
+        _ => "Dezembro",
+    };
+    format!("{nome}/{}", &m[..4])
+}
+
+/// Seis dígitos aleatórios.
+fn codigo_aleatorio() -> String {
+    let mut b = [0_u8; 4];
+    // Sem fonte de aleatoriedade, cai num código fixo: é um site de mentira.
+    if getrandom::fill(&mut b).is_err() {
+        return "000000".to_owned();
+    }
+    format!("{:06}", u32::from_le_bytes(b) % 1_000_000)
+}
+
+impl PortalDeContracheque {
+    /// Sobe o portal numa porta livre de `127.0.0.1`.
+    ///
+    /// # Errors
+    /// Se não conseguir abrir a porta.
+    pub fn iniciar(mut config: Config) -> std::io::Result<Self> {
+        config.meses.retain(|m| mes_valido(m));
+        config.cpf.retain(|c| c.is_ascii_digit());
+        let escuta = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+        let porta = escuta.local_addr()?.port();
+        let estado = Arc::new(EstadoDoPortal {
+            config,
+            codigo: Mutex::new(None),
+            liberado: AtomicBool::new(false),
+            baixados: Mutex::new(Vec::new()),
+            proibidos: Mutex::new(Vec::new()),
+            logins: AtomicUsize::new(0),
+            logins_recusados: AtomicUsize::new(0),
+            codigos_recusados: AtomicUsize::new(0),
+            parar: AtomicBool::new(false),
+        });
+        let e = Arc::clone(&estado);
+        let fio = std::thread::spawn(move || {
+            for conexao in escuta.incoming() {
+                if e.parar.load(Ordering::SeqCst) {
+                    break;
+                }
+                let Ok(c) = conexao else { continue };
+                let e2 = Arc::clone(&e);
+                std::thread::spawn(move || {
+                    let _ = atender_portal(c, &e2);
+                });
+            }
+        });
+        Ok(Self {
+            porta,
+            estado,
+            fio: Some(fio),
+        })
+    }
+
+    /// A URL base, sem barra no fim (`http://127.0.0.1:porta`).
+    #[must_use]
+    pub fn url_base(&self) -> String {
+        format!("http://127.0.0.1:{}", self.porta)
+    }
+
+    /// A porta.
+    #[must_use]
+    pub fn porta(&self) -> u16 {
+        self.porta
+    }
+
+    /// O nome lógico do portal ([`HOST_LOGICO_DO_PORTAL`]).
+    #[must_use]
+    pub fn host_logico(&self) -> &'static str {
+        HOST_LOGICO_DO_PORTAL
+    }
+
+    /// O último código gerado por um login certo (o que a `CaixaFalsa` põe no "e-mail").
+    #[must_use]
+    pub fn codigo_gerado(&self) -> Option<String> {
+        travar(&self.estado.codigo).as_ref().map(|(c, _)| c.clone())
+    }
+
+    /// Quando o último código foi gerado.
+    #[must_use]
+    pub fn instante_do_codigo(&self) -> Option<SystemTime> {
+        travar(&self.estado.codigo).as_ref().map(|(_, t)| *t)
+    }
+
+    /// O mês (`AAAA-MM`) foi baixado pelo menos uma vez?
+    #[must_use]
+    pub fn baixou(&self, mes: &str) -> bool {
+        travar(&self.estado.baixados).iter().any(|m| m == mes)
+    }
+
+    /// Quantos downloads foram servidos (de qualquer mês).
+    #[must_use]
+    pub fn downloads(&self) -> usize {
+        travar(&self.estado.baixados).len()
+    }
+
+    /// Tudo que alcançou "Pagar boleto" ou "Alterar cadastro" (`MÉTODO caminho`). Um roteiro
+    /// que respeita a lista de bloqueio deixa isto vazio.
+    #[must_use]
+    pub fn acessos_proibidos(&self) -> Vec<String> {
+        travar(&self.estado.proibidos).clone()
+    }
+
+    /// Logins aceitos.
+    #[must_use]
+    pub fn logins(&self) -> usize {
+        self.estado.logins.load(Ordering::SeqCst)
+    }
+
+    /// Logins recusados.
+    #[must_use]
+    pub fn logins_recusados(&self) -> usize {
+        self.estado.logins_recusados.load(Ordering::SeqCst)
+    }
+
+    /// Códigos (ou tokens) recusados.
+    #[must_use]
+    pub fn codigos_recusados(&self) -> usize {
+        self.estado.codigos_recusados.load(Ordering::SeqCst)
+    }
+
+    /// Simula o usuário resolvendo o token ou o CAPTCHA (o mesmo de `POST /_teste/liberar`).
+    pub fn liberar(&self) {
+        self.estado.liberado.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for PortalDeContracheque {
+    fn drop(&mut self) {
+        self.estado.parar.store(true, Ordering::SeqCst);
+        // acorda o accept
+        let _ = TcpStream::connect(SocketAddr::from(([127, 0, 0, 1], self.porta)));
+        if let Some(f) = self.fio.take() {
+            let _ = f.join();
+        }
+    }
+}
+
+/// Um PDF minúsculo e FICTÍCIO (uma página, o texto "Contracheque FICTÍCIO AAAA-MM"),
+/// determinístico por mês. As posições da tabela `xref` são calculadas.
+#[must_use]
+pub fn pdf_do_contracheque(mes: &str) -> Vec<u8> {
+    // O Í sai como escape octal (`\315`, WinAnsi): o arquivo inteiro é ASCII.
+    let conteudo = format!("BT /F1 18 Tf 72 720 Td (Contracheque FIC\\315TICIO {mes}) Tj ET");
+    let objetos = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_owned(),
+        format!(
+            "<< /Length {} >>\nstream\n{conteudo}\nendstream",
+            conteudo.len()
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_owned(),
+    ];
+    let mut pdf = String::from("%PDF-1.4\n");
+    let mut posicoes = Vec::new();
+    for (i, o) in objetos.iter().enumerate() {
+        posicoes.push(pdf.len());
+        pdf.push_str(&format!("{} 0 obj\n{o}\nendobj\n", i + 1));
+    }
+    let xref = pdf.len();
+    pdf.push_str(&format!(
+        "xref\n0 {}\n0000000000 65535 f \n",
+        objetos.len() + 1
+    ));
+    for p in posicoes {
+        pdf.push_str(&format!("{p:010} 00000 n \n"));
+    }
+    pdf.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        objetos.len() + 1
+    ));
+    pdf.into_bytes()
+}
+
+fn html_portal(titulo: &str, corpo: &str) -> Vec<u8> {
+    format!(
+        "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><title>{titulo}</title>\
+         <style>body{{font-family:sans-serif;max-width:640px;margin:2em auto}}\
+         input,button,a.botao{{font-size:16px;padding:6px 10px;margin:4px 0}}table{{border-collapse:collapse}}\
+         td,th{{border:1px solid #999;padding:4px 10px}}</style></head><body>\
+         <h1>Portal de Contracheque Fictício</h1>{corpo}</body></html>"
+    )
+    .into_bytes()
+}
+
+/// A página espera o usuário (token ou CAPTCHA) e segue sozinha quando ele "libera".
+const ESPERA_DA_LIBERACAO: &str = "<script>setInterval(()=>fetch('/_teste/liberado')\
+    .then(r=>r.text()).then(t=>{if(t==='1')location='/contracheques'}),500);</script>";
+
+fn pagina_do_codigo(mfa: MfaDoPortal, erro: bool) -> String {
+    let erro = if erro {
+        "<p id=\"erro\">Código inválido. Tente de novo.</p>"
+    } else {
+        ""
+    };
+    match mfa {
+        MfaDoPortal::Email => format!(
+            "{erro}<p>Enviamos um código por e-mail. Digite-o abaixo para continuar.</p>\
+             <form id=\"fm\" method=\"post\" action=\"/codigo\">\
+             <input id=\"codigo\" name=\"codigo\" autocomplete=\"one-time-code\">\
+             <button id=\"confirmar\" type=\"submit\">Confirmar</button></form>"
+        ),
+        MfaDoPortal::Token => format!(
+            "{erro}<p>Digite o código do seu app autenticador.</p>\
+             <form id=\"fm\" method=\"post\" action=\"/codigo\">\
+             <input id=\"token\" name=\"token\" autocomplete=\"one-time-code\">\
+             <button id=\"confirmar\" type=\"submit\">Confirmar</button></form>{ESPERA_DA_LIBERACAO}"
+        ),
+        MfaDoPortal::Captcha => format!(
+            "<p>Antes de continuar, confirme o captcha.</p>\
+             <div class=\"g-recaptcha\" data-sitekey=\"falsa\"><label><input type=\"checkbox\" \
+             id=\"humano\" onclick=\"fetch('/_teste/liberar',{{method:'POST'}})\"> Não sou um robô</label></div>\
+             {ESPERA_DA_LIBERACAO}"
+        ),
+    }
+}
+
+fn pagina_dos_contracheques(meses: &[String]) -> String {
+    let mut linhas = String::new();
+    // Mais recente primeiro.
+    let mut ordenados: Vec<&String> = meses.iter().collect();
+    ordenados.sort();
+    ordenados.reverse();
+    for m in ordenados {
+        linhas.push_str(&format!(
+            "<tr><td>{}</td><td><a class=\"baixar\" id=\"baixar-{m}\" href=\"/contracheque/{m}.pdf\">Baixar PDF</a></td></tr>",
+            nome_do_mes(m)
+        ));
+    }
+    format!(
+        "<p>Seus contracheques.</p>\
+         <table id=\"lista\"><tr><th>Competência</th><th>Arquivo</th></tr>{linhas}</table>\
+         <form method=\"post\" action=\"/boleto/pagar\"><button id=\"pagar-boleto\" type=\"submit\">Pagar boleto</button></form>\
+         <p><a id=\"alterar-cadastro\" href=\"/cadastro/alterar\">Alterar cadastro</a></p>"
+    )
+}
+
+fn atender_portal(mut c: TcpStream, e: &EstadoDoPortal) -> std::io::Result<()> {
+    let Some(p) = ler_pedido(&mut c)? else {
+        return Ok(());
+    };
+    let rota = p.caminho.split('?').next().unwrap_or("/").to_owned();
+    let html_ok = |c: &mut TcpStream, t: &str, corpo: &str| {
+        responder(
+            c,
+            "200 OK",
+            "",
+            "text/html; charset=utf-8",
+            &html_portal(t, corpo),
+        )
+    };
+    let com_sessao = tem(&p.cookies, "sessao");
+    let segunda_etapa = tem(&p.cookies, "mfa") || e.liberado.load(Ordering::SeqCst);
+    let logado = com_sessao && segunda_etapa;
+    match (p.metodo.as_str(), rota.as_str()) {
+        ("GET", "/") => redirecionar(&mut c, "/entrar", None),
+        ("GET", "/entrar") => {
+            let erro = if p.caminho.contains("erro=1") {
+                "<p id=\"erro\">CPF ou senha inválidos.</p>"
+            } else {
+                ""
+            };
+            html_ok(
+                &mut c,
+                "Entrar",
+                &format!(
+                    "{erro}<p>Acesse seu contracheque</p><form id=\"f\" method=\"post\" action=\"/entrar\">\
+                     <label>CPF <input id=\"cpf\" name=\"cpf\" type=\"text\" autocomplete=\"username\"></label><br>\
+                     <label>Senha <input id=\"senha\" name=\"senha\" type=\"password\" autocomplete=\"current-password\"></label><br>\
+                     <button id=\"entrar\" type=\"submit\">Entrar</button></form>"
+                ),
+            )
+        }
+        ("POST", "/entrar") => {
+            let cpf: String = campo_do_formulario(&p.corpo, "cpf")
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect();
+            let senha = campo_do_formulario(&p.corpo, "senha");
+            if cpf == e.config.cpf && senha == e.config.senha {
+                e.logins.fetch_add(1, Ordering::SeqCst);
+                let codigo = e
+                    .config
+                    .codigo_fixo
+                    .clone()
+                    .unwrap_or_else(codigo_aleatorio);
+                *travar(&e.codigo) = Some((codigo, SystemTime::now()));
+                redirecionar(&mut c, "/codigo", Some("sessao=ok"))
+            } else {
+                e.logins_recusados.fetch_add(1, Ordering::SeqCst);
+                redirecionar(&mut c, "/entrar?erro=1", None)
+            }
+        }
+        ("GET", "/codigo") if com_sessao => {
+            if segunda_etapa {
+                redirecionar(&mut c, "/contracheques", None)
+            } else {
+                let erro = p.caminho.contains("erro=1");
+                html_ok(&mut c, "Verificação", &pagina_do_codigo(e.config.mfa, erro))
+            }
+        }
+        ("POST", "/codigo") if com_sessao => {
+            let campo = match e.config.mfa {
+                MfaDoPortal::Email => "codigo",
+                MfaDoPortal::Token => "token",
+                MfaDoPortal::Captcha => "",
+            };
+            let enviado = campo_do_formulario(&p.corpo, campo);
+            let esperado = travar(&e.codigo).as_ref().map(|(c, _)| c.clone());
+            if !campo.is_empty() && !enviado.is_empty() && esperado.as_deref() == Some(&enviado) {
+                redirecionar(&mut c, "/contracheques", Some("mfa=ok"))
+            } else {
+                e.codigos_recusados.fetch_add(1, Ordering::SeqCst);
+                redirecionar(&mut c, "/codigo?erro=1", None)
+            }
+        }
+        ("POST", "/_teste/liberar") => {
+            e.liberado.store(true, Ordering::SeqCst);
+            responder(&mut c, "204 No Content", "", "text/plain", b"")
+        }
+        ("GET", "/_teste/liberado") => {
+            let v: &[u8] = if e.liberado.load(Ordering::SeqCst) {
+                b"1"
+            } else {
+                b"0"
+            };
+            responder(&mut c, "200 OK", "", "text/plain", v)
+        }
+        ("GET", "/contracheques") if logado => html_ok(
+            &mut c,
+            "Contracheques",
+            &pagina_dos_contracheques(&e.config.meses),
+        ),
+        ("GET", r) if r.starts_with("/contracheque/") && r.ends_with(".pdf") && logado => {
+            let mes = &r["/contracheque/".len()..r.len() - ".pdf".len()];
+            if e.config.meses.iter().any(|m| m == mes) {
+                travar(&e.baixados).push(mes.to_owned());
+                responder(
+                    &mut c,
+                    "200 OK",
+                    &format!(
+                        "Content-Disposition: attachment; filename=\"contracheque-{mes}.pdf\"\r\n"
+                    ),
+                    "application/pdf",
+                    &pdf_do_contracheque(mes),
+                )
+            } else {
+                responder(&mut c, "404 Not Found", "", "text/plain", b"nao encontrado")
+            }
+        }
+        // Os distratores: nada disto pode ser alcançado por um roteiro que respeita a lista de
+        // bloqueio.
+        (m, "/boleto/pagar" | "/cadastro/alterar") => {
+            travar(&e.proibidos).push(format!("{m} {rota}"));
+            html_ok(&mut c, "Feito", "<p>Operação realizada.</p>")
+        }
+        (_, "/codigo" | "/contracheques") if com_sessao => redirecionar(&mut c, "/codigo", None),
+        (_, "/codigo" | "/contracheques") => redirecionar(&mut c, "/entrar", None),
+        (_, r) if r.starts_with("/contracheque/") => redirecionar(&mut c, "/entrar", None),
         _ => responder(&mut c, "404 Not Found", "", "text/plain", b"nao encontrado"),
     }
 }
