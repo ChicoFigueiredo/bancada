@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use mlua::{Error, IntoLuaMulti, Lua, Result, Scope, Table, Value, Variadic};
 
 use super::limites::{Controle, ErroDeRoteiro, Saida};
+use super::parametros::{Parametros, ValorDeParametro};
 use super::verbos::{ResultadoDeVerbo, Verbos};
 
 /// Espera padrão de `navegador.esperar`.
@@ -23,6 +24,10 @@ pub const JANELA_MAXIMA: Duration = Duration::from_secs(300);
 const REGISTRO_MAXIMO: usize = 2_000;
 /// Intervalo aceito por `util.somar_meses`.
 const MESES_MAXIMOS: i64 = 1_200;
+/// Tamanho máximo, em caracteres, do motivo de `navegador.entrada_recusada`.
+const MOTIVO_MAXIMO: usize = 200;
+/// Quantos meses `util.meses` devolve, no máximo.
+pub const MESES_DA_LISTA_MAXIMO: usize = 60;
 
 /// Tudo o que as funções Lua precisam: o trait, os tetos, a contagem e a saída.
 pub(crate) struct Contexto<'a> {
@@ -217,6 +222,7 @@ pub(crate) fn instalar<'s, 'e: 's>(
     lua: &Lua,
     scope: &'s Scope<'s, 'e>,
     ctx: &'e Contexto<'e>,
+    parametros: &Parametros,
 ) -> Result<()> {
     let nav = lua.create_table()?;
     let util = lua.create_table()?;
@@ -344,6 +350,28 @@ pub(crate) fn instalar<'s, 'e: 's>(
         Ok(())
     })?;
 
+    adicionar(scope, &nav, "entrada_recusada", move |a| {
+        const V: &str = "navegador.entrada_recusada";
+        sem_sobras(V, a, 1)?;
+        let motivo = arg_texto(V, a, 0, "motivo")?;
+        if ctx.controle.esta_encerrado() {
+            return Err::<(), _>(Error::runtime("roteiro encerrado"));
+        }
+        // Limpa primeiro e corta depois: um segredo cortado no meio não seria reconhecido.
+        let motivo: String = ctx.limpar(&motivo).chars().take(MOTIVO_MAXIMO).collect();
+        ctx.controle
+            .marcar_fatal(ErroDeRoteiro::EntradaRecusada(motivo));
+        Err(Error::runtime("entrada recusada"))
+    })?;
+
+    adicionar(scope, &util, "meses", move |a| {
+        const V: &str = "util.meses";
+        sem_sobras(V, a, 2)?;
+        let de = arg_texto(V, a, 0, "de")?;
+        let ate = arg_texto(V, a, 1, "ate")?;
+        lista_de_meses(V, &de, &ate)
+    })?;
+
     adicionar(scope, &util, "hoje", move |a| {
         const V: &str = "util.hoje";
         sem_sobras(V, a, 0)?;
@@ -358,12 +386,64 @@ pub(crate) fn instalar<'s, 'e: 's>(
         ctx.chamar(|v| v.somar_meses(&data, meses))
     })?;
 
+    let tabela_de_parametros = lua.create_table()?;
+    for (nome, valor) in parametros.iter() {
+        match valor {
+            ValorDeParametro::Texto(t) => tabela_de_parametros.set(nome, t.as_str())?,
+            ValorDeParametro::Booleano(b) => tabela_de_parametros.set(nome, *b)?,
+        }
+    }
+
     nav.set_readonly(true);
     util.set_readonly(true);
+    tabela_de_parametros.set_readonly(true);
     let globais = lua.globals();
     globais.set("navegador", nav)?;
     globais.set("util", util)?;
+    globais.set("parametros", tabela_de_parametros)?;
     Ok(())
+}
+
+/// "AAAA-MM" estrito: quatro dígitos de ano (1 a 9999) e dois de mês (01 a 12).
+fn mes_do_texto(verbo: &str, nome: &str, t: &str) -> Result<(u32, u32)> {
+    let b = t.as_bytes();
+    let formato_ok = b.len() == 7
+        && b[4] == b'-'
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[5..].iter().all(u8::is_ascii_digit);
+    let numeros = if formato_ok {
+        t[..4].parse::<u32>().ok().zip(t[5..].parse::<u32>().ok())
+    } else {
+        None
+    };
+    match numeros {
+        Some((ano, mes)) if (1..=9999).contains(&ano) && (1..=12).contains(&mes) => Ok((ano, mes)),
+        _ => Err(Error::runtime(format!(
+            "{verbo}: o argumento {nome} deve ser um mês no formato AAAA-MM (como 2026-11)"
+        ))),
+    }
+}
+
+/// `util.meses(de, ate)`: os meses de `de` a `ate`, inclusive, em ordem.
+fn lista_de_meses(verbo: &str, de: &str, ate: &str) -> Result<Vec<String>> {
+    let (ano_de, mes_de) = mes_do_texto(verbo, "de", de)?;
+    let (ano_ate, mes_ate) = mes_do_texto(verbo, "ate", ate)?;
+    let inicio = ano_de * 12 + (mes_de - 1);
+    let fim = ano_ate * 12 + (mes_ate - 1);
+    if inicio > fim {
+        return Err(Error::runtime(format!(
+            "{verbo}: `de` ({de}) não pode ser depois de `ate` ({ate})"
+        )));
+    }
+    let total = (fim - inicio + 1) as usize;
+    if total > MESES_DA_LISTA_MAXIMO {
+        return Err(Error::runtime(format!(
+            "{verbo}: o intervalo tem {total} meses e o máximo é {MESES_DA_LISTA_MAXIMO}"
+        )));
+    }
+    Ok((inicio..=fim)
+        .map(|n| format!("{:04}-{:02}", n / 12, n % 12 + 1))
+        .collect())
 }
 
 /// `opcoes` do código por e-mail: nada, um número de segundos, ou `{ janela_segundos = n }`.

@@ -84,6 +84,14 @@ pub enum ErroDeRoteiro {
         /// Linha da chamada, quando dá para saber.
         linha: Option<u32>,
     },
+    /// O roteiro chamou `navegador.entrada_recusada(motivo)`: o portal não aceitou a entrada
+    /// (senha expirada, cadastro a atualizar, bloqueio...). Encerra o roteiro e o app suspende a
+    /// agenda dele até o usuário retomar. A mensagem já passou por [`Verbos::limpar`] e tem no
+    /// máximo 200 caracteres.
+    ///
+    /// [`Verbos::limpar`]: super::Verbos::limpar
+    #[error("entrada recusada: {0}")]
+    EntradaRecusada(String),
     /// Passou do teto de instruções.
     #[error("o roteiro passou do limite de {0} instruções (laço infinito?)")]
     LimiteDeInstrucoes(u64),
