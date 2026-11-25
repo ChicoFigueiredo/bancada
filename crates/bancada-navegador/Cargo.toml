@@ -1,0 +1,31 @@
+[package]
+name = "bancada-navegador"
+description = "Motor de navegador da bancada: Chrome visível por CDP com perfil dedicado, página simplificada sem valores de campo, e roteiros escritos em Luau com verbos de alto nível. Genérico: a política (o que se pode clicar, onde a senha vale, de onde vem o código) é injetada pelo app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# O navegador falso e o site de mentira local dos testes. Nenhuma crate liga isto em
+# `[dependencies]`.
+testes = []
+
+[dependencies]
+bancada-segredos = { workspace = true }
+mlua = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+unicode-normalization = "0.1"
+base64 = "0.22"
+getrandom = "0.3"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
