@@ -434,3 +434,29 @@ fn execucoes_sao_isoladas() {
     rodar("segredo_global = 1", &mut v).expect("ok");
     rodar("assert(segredo_global == nil)", &mut v).expect("outro VM, sem o global");
 }
+
+#[test]
+fn esperar_sumir_devolve_true_quando_o_elemento_nao_esta_e_false_se_ele_fica() {
+    let mut v = VerbosFalsos::novo();
+    v.existentes.push("#fica".into());
+    rodar(
+        r##"
+        assert(navegador.esperar_sumir("#nunca-houve", 5) == true)
+        assert(navegador.esperar_sumir("#fica", 1) == false)
+        "##,
+        &mut v,
+    )
+    .expect("ok");
+}
+
+#[test]
+fn esperar_sumir_recusa_prazo_nao_positivo_e_argumento_errado() {
+    for ruim in [
+        r##"navegador.esperar_sumir("#x", 0)"##,
+        "navegador.esperar_sumir(42)",
+        r##"navegador.esperar_sumir("#x", 1, 2)"##,
+    ] {
+        let mut v = VerbosFalsos::novo();
+        assert!(rodar(ruim, &mut v).is_err(), "{ruim}");
+    }
+}

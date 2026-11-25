@@ -239,6 +239,17 @@ pub(crate) fn instalar<'s, 'e: 's>(
         ctx.chamar(|v| v.esperar(&seletor, prazo))
     })?;
 
+    adicionar(scope, &nav, "esperar_sumir", move |a| {
+        const V: &str = "navegador.esperar_sumir";
+        sem_sobras(V, a, 2)?;
+        let seletor = arg_texto(V, a, 0, "seletor")?;
+        let prazo = match a.get(1) {
+            None => ESPERA_PADRAO,
+            Some(v) => segundos_limitados(V, 2, "segundos", v, ESPERA_MAXIMA)?,
+        };
+        ctx.chamar(|v| v.esperar_sumir(&seletor, prazo))
+    })?;
+
     adicionar(scope, &nav, "existe", move |a| {
         const V: &str = "navegador.existe";
         sem_sobras(V, a, 1)?;

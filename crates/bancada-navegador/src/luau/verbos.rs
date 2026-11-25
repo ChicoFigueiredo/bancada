@@ -81,6 +81,24 @@ pub trait Verbos {
     /// `navegador.existe(seletor)`: visível agora?
     fn existe(&mut self, seletor: &str) -> ResultadoDeVerbo<bool>;
 
+    /// `navegador.esperar_sumir(seletor, segundos?)`: `true` se o elemento deixou de estar
+    /// visível dentro do prazo (já invisível ou removido conta como sumido); `false` se o prazo
+    /// acabou com ele ainda na tela. O prazo já chega limitado (padrão 15 s, máximo 120 s). A
+    /// implementação padrão consulta [`Verbos::existe`] de 250 em 250 ms; o app pode
+    /// sobrescrevê-la (por exemplo, para checar cancelamento entre as consultas).
+    fn esperar_sumir(&mut self, seletor: &str, prazo: Duration) -> ResultadoDeVerbo<bool> {
+        let inicio = std::time::Instant::now();
+        loop {
+            if !self.existe(seletor)? {
+                return Ok(true);
+            }
+            if inicio.elapsed() >= prazo {
+                return Ok(false);
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+
     /// `navegador.clicar(seletor)`: a lista de bloqueio vale aqui e no navegador.
     fn clicar(&mut self, seletor: &str) -> ResultadoDeVerbo<()>;
 
