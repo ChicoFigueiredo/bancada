@@ -100,7 +100,14 @@
     }
     return null;
   }
-  function barrar(ev, b) {
+  // O que sai da página para o SBF (campo e termo do bloqueio) é texto que a página controla:
+  // sem caracteres de controle e com no máximo 200 caracteres. O SBF higieniza de novo do lado
+  // dele (a página pode chamar o binding sem passar por aqui).
+  function limparTexto(t) {
+    return String(t == null ? '' : t).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '').slice(0, 200);
+  }
+  function barrar(ev, b0) {
+    const b = { campo: limparTexto(b0.campo), termo: limparTexto(b0.termo) };
     try { ev.preventDefault(); ev.stopImmediatePropagation(); ev.stopPropagation(); } catch (e) {}
     window.__sbfBloqueios = (window.__sbfBloqueios || []).concat([b]);
     try { if (window.sbfBloqueio) window.sbfBloqueio(JSON.stringify(b)); } catch (e) {}
@@ -268,6 +275,13 @@
     if (e.select) { try { e.select(); } catch (x) {} }
     return document.activeElement === e;
   }
+  // Reconferência feita imediatamente antes de digitar um segredo: o elemento ainda é o que tem
+  // o foco e é do tipo esperado? Nunca devolve valor de campo.
+  function confirmarCampo(sel) {
+    const e = document.querySelector(sel);
+    if (!e || document.activeElement !== e) return { foco: false };
+    return { foco: true, tipo: tipoDe(e), senha: !!eSenha(e), campo: /^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) };
+  }
   // O texto VISÍVEL de um elemento, nunca o valor de um campo: `input`, `textarea` e `select`
   // (e o que estiver dentro deles) ficam de fora, e a senha digitada nunca é lida.
   function texto(sel) {
@@ -297,6 +311,7 @@
   window.__sbfPonte = {
     alvoDeClique: alvoDeClique,
     focarCampo: focarCampo,
+    confirmarCampo: confirmarCampo,
     tabela: tabela,
     texto: texto,
     pronto: () => document.readyState,

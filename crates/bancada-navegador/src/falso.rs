@@ -3,7 +3,7 @@
 //! que o segredo chegou ao campo (é código de teste, com dados fictícios).
 
 use crate::erro::{ErroDoNavegador, Resultado};
-use crate::navegador::Navegador;
+use crate::navegador::{Navegador, TipoDeCampo};
 use crate::pagina::Pagina;
 use crate::politica::{Bloqueio, Candidato};
 use bancada_segredos::Segredo;
@@ -58,6 +58,9 @@ pub struct NavegadorFalso {
     pub liberacao: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// As fases de login marcadas pelo executor, em ordem (`Some(host)` liga, `None` encerra).
     pub fases_de_login: Vec<Option<String>>,
+    /// Simula um redirecionamento por timer: a página (nome em `paginas`) para onde o site
+    /// "vai" entre a conferência do app e a digitação do segredo. Vale uma vez.
+    pub redireciona_antes_de_digitar: Option<String>,
     pendentes: Vec<Bloqueio>,
 }
 
@@ -127,8 +130,41 @@ impl Navegador for NavegadorFalso {
         Ok(())
     }
 
-    fn preencher_segredo(&mut self, seletor: &str, segredo: &Segredo) -> Resultado<()> {
+    fn preencher_segredo(
+        &mut self,
+        seletor: &str,
+        segredo: &Segredo,
+        tipo: TipoDeCampo,
+        url_permitida: &dyn Fn(&str) -> bool,
+    ) -> Resultado<()> {
         self.chamadas.push(format!("preencher_segredo {seletor}"));
+        if let Some(p) = self.redireciona_antes_de_digitar.take() {
+            self.atual = p;
+        }
+        // A reconferência do motor, como no Chrome: a URL da página de agora e o campo.
+        let url = self
+            .paginas
+            .get(self.efetiva())
+            .map(|p| p.url.clone())
+            .unwrap_or_default();
+        if !url_permitida(&url) {
+            return Err(ErroDoNavegador::Navegador(
+                "a página saiu do site aprovado antes de digitar: o segredo não foi digitado"
+                    .into(),
+            ));
+        }
+        if let Some(e) = self.elementos.get(seletor) {
+            let c = &e.candidato;
+            let certo = match tipo {
+                TipoDeCampo::Senha => c.eh_senha,
+                TipoDeCampo::Texto => !c.eh_senha,
+            };
+            if !certo {
+                return Err(ErroDoNavegador::Navegador(
+                    "o campo não é o esperado para este segredo: não foi digitado".into(),
+                ));
+            }
+        }
         self.digitados
             .push((seletor.to_owned(), segredo.expor().to_owned()));
         Ok(())
