@@ -164,14 +164,14 @@ impl Drop for SiteFalso {
     }
 }
 
-struct Pedido {
-    metodo: String,
-    caminho: String,
-    cookies: String,
-    corpo: String,
+pub(crate) struct Pedido {
+    pub(crate) metodo: String,
+    pub(crate) caminho: String,
+    pub(crate) cookies: String,
+    pub(crate) corpo: String,
 }
 
-fn ler_pedido(c: &mut TcpStream) -> std::io::Result<Option<Pedido>> {
+pub(crate) fn ler_pedido(c: &mut TcpStream) -> std::io::Result<Option<Pedido>> {
     c.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut buf = Vec::new();
     let mut parte = [0_u8; 4096];
@@ -270,7 +270,7 @@ fn html(titulo: &str, corpo: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-fn responder(
+pub(crate) fn responder(
     c: &mut TcpStream,
     status: &str,
     extra: &str,
@@ -589,7 +589,7 @@ struct EstadoDoPortal {
     parar: AtomicBool,
 }
 
-fn travar<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn travar<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 

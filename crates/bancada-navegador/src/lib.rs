@@ -2,7 +2,8 @@
 //! preenchidos por frentes separadas.
 //!
 //! - `cdp`, `chrome`, `navegador`, `pagina`, `politica`, `falso`, `site_falso`: o navegador
-//!   (extraído do `sbf-roteiros`).
+//!   (extraído do `sbf-roteiros`); `site_falso_conexoes`: o painel de conexões fictício
+//!   (Meu Pluggy) para o roteiro de atualizar conexões.
 //! - `luau`: o roteiro escrito, com verbos de alto nível sobre o trait `luau::Verbos`.
 
 pub mod cdp;
@@ -15,6 +16,7 @@ pub mod navegador;
 pub mod pagina;
 pub mod politica;
 pub mod site_falso;
+pub mod site_falso_conexoes;
 pub mod url;
 
 pub use erro::{ErroDoNavegador, Resultado};
