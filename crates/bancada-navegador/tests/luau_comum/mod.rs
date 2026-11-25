@@ -36,6 +36,12 @@ pub struct VerbosFalsos {
     /// Erro devolvido pelo verbo de nome dado (ex.: "clicar"), uma vez.
     pub falhas: HashMap<&'static str, ErroDeVerbo>,
     pub arquivo_baixado: String,
+    /// Pausa automática (CAPTCHA, código do aplicativo) simulada dentro de `abrir`, `clicar` e
+    /// `esperar`: o verbo dorme esse tempo de verdade e o acumula para o host descontar.
+    pub pausa_automatica: Duration,
+    pendente: Duration,
+    /// Trechos que `limpar` troca por `[segredo]`.
+    pub segredos: Vec<String>,
 }
 
 impl VerbosFalsos {
@@ -51,6 +57,23 @@ impl VerbosFalsos {
         self
     }
 
+    pub fn com_pausa_automatica(mut self, d: Duration) -> Self {
+        self.pausa_automatica = d;
+        self
+    }
+
+    pub fn com_segredo(mut self, s: &str) -> Self {
+        self.segredos.push(s.into());
+        self
+    }
+
+    fn pausar_sozinho(&mut self) {
+        if !self.pausa_automatica.is_zero() {
+            std::thread::sleep(self.pausa_automatica);
+            self.pendente += self.pausa_automatica;
+        }
+    }
+
     fn falha(&mut self, verbo: &'static str) -> ResultadoDeVerbo<()> {
         match self.falhas.remove(verbo) {
             Some(e) => Err(e),
@@ -62,10 +85,12 @@ impl VerbosFalsos {
 impl Verbos for VerbosFalsos {
     fn abrir(&mut self, url: &str) -> ResultadoDeVerbo<()> {
         self.chamadas.push(Chamada::Abrir(url.into()));
+        self.pausar_sozinho();
         self.falha("abrir")
     }
     fn esperar(&mut self, seletor: &str, prazo: Duration) -> ResultadoDeVerbo<bool> {
         self.chamadas.push(Chamada::Esperar(seletor.into(), prazo));
+        self.pausar_sozinho();
         self.falha("esperar")?;
         Ok(self.esperar_resultado.unwrap_or(true))
     }
@@ -76,6 +101,7 @@ impl Verbos for VerbosFalsos {
     }
     fn clicar(&mut self, seletor: &str) -> ResultadoDeVerbo<()> {
         self.chamadas.push(Chamada::Clicar(seletor.into()));
+        self.pausar_sozinho();
         self.falha("clicar")
     }
     fn texto(&mut self, seletor: &str) -> ResultadoDeVerbo<String> {
@@ -124,6 +150,16 @@ impl Verbos for VerbosFalsos {
     fn registrar(&mut self, mensagem: &str) -> ResultadoDeVerbo<()> {
         self.chamadas.push(Chamada::Registrar(mensagem.into()));
         self.falha("registrar")
+    }
+    fn limpar(&self, texto: &str) -> String {
+        let mut limpo = texto.to_owned();
+        for s in &self.segredos {
+            limpo = limpo.replace(s.as_str(), "[segredo]");
+        }
+        limpo
+    }
+    fn tempo_pausado_automatico(&mut self) -> Duration {
+        std::mem::take(&mut self.pendente)
     }
     fn hoje(&mut self) -> ResultadoDeVerbo<String> {
         self.chamadas.push(Chamada::Hoje);

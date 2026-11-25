@@ -37,6 +37,17 @@ pub enum ErroDeVerbo {
 }
 
 impl ErroDeVerbo {
+    /// O mesmo erro com o texto passado por `f` (a limpeza de segredo).
+    pub(crate) fn mapear(self, f: impl Fn(&str) -> String) -> Self {
+        match self {
+            Self::Bloqueado { motivo } => Self::Bloqueado { motivo: f(&motivo) },
+            Self::Prazo(m) => Self::Prazo(f(&m)),
+            Self::Falhou(m) => Self::Falhou(f(&m)),
+            Self::HostNaoPermitido => Self::HostNaoPermitido,
+            Self::Abortado => Self::Abortado,
+        }
+    }
+
     /// Erros que encerram o roteiro de vez, mesmo que o script tente capturá-los.
     pub(crate) fn e_fatal(&self) -> bool {
         matches!(
@@ -52,6 +63,13 @@ pub type ResultadoDeVerbo<T> = Result<T, ErroDeVerbo>;
 /// Os verbos que o roteiro escrito pode chamar. O host (`luau::executar`) valida os tipos dos
 /// argumentos, aplica os tetos (espera, janela do e-mail, número de chamadas) e só então chama
 /// o método; os textos que voltam já vêm limpos pelo app e são repassados ao script como estão.
+///
+/// # Limpeza de segredo é responsabilidade do app
+///
+/// O host não sabe o que é segredo. O app DEVE limpar o que guarda em [`Verbos::registrar`] e
+/// implementar [`Verbos::limpar`]: o host o aplica a toda mensagem de erro e a todo registro
+/// antes de devolvê-los em [`ErroDeRoteiro`](super::ErroDeRoteiro) e
+/// [`Saida`](super::Saida). Sem essa implementação, nada é limpo.
 pub trait Verbos {
     /// `navegador.abrir(url)`: a URL é conferida na lista de bloqueio e no host permitido.
     fn abrir(&mut self, url: &str) -> ResultadoDeVerbo<()>;
@@ -98,8 +116,26 @@ pub trait Verbos {
     /// `Err(Abortado)` se ele aborta. O tempo gasto aqui não conta no tempo total do roteiro.
     fn pausa(&mut self, motivo: &str) -> ResultadoDeVerbo<()>;
 
-    /// `navegador.registrar(mensagem)`: o app limpa e guarda o registro.
+    /// `navegador.registrar(mensagem)`: o app limpa e guarda o registro. O host também passa o
+    /// registro por [`Verbos::limpar`] antes de pô-lo em [`Saida`](super::Saida), mas o que o
+    /// app guarda por conta própria aqui é da responsabilidade dele.
     fn registrar(&mut self, mensagem: &str) -> ResultadoDeVerbo<()>;
+
+    /// Remove segredo (senha, CPF, código de MFA) de um texto. O host o aplica a toda mensagem
+    /// de erro (do verbo e do roteiro) e a todo registro antes de devolvê-los ao app e ao
+    /// script. A implementação padrão devolve o texto como está: o app DEVE sobrescrevê-la.
+    fn limpar(&self, texto: &str) -> String {
+        texto.to_owned()
+    }
+
+    /// Tempo que um verbo gastou esperando o usuário por conta própria, por exemplo uma pausa
+    /// automática por CAPTCHA ou código do aplicativo detectada dentro de `abrir`, `clicar` ou
+    /// `esperar`. O host chama este método após CADA verbo, soma o que vier ao desconto do
+    /// tempo total e o app deve zerar o acumulado a cada chamada. Não inclua aqui o tempo de
+    /// `navegador.pausa`: o host já o mede. A implementação padrão não desconta nada.
+    fn tempo_pausado_automatico(&mut self) -> Duration {
+        Duration::ZERO
+    }
 
     /// `util.hoje()`: "AAAA-MM-DD" no fuso do usuário (UTC−3), nunca UTC puro.
     fn hoje(&mut self) -> ResultadoDeVerbo<String>;

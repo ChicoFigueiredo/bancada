@@ -85,10 +85,36 @@ pub fn executar(
     match resultado {
         Ok(()) => match controle.tomar_fatal() {
             // O script engoliu o erro com `pcall`, mas o host já tinha decidido encerrar.
-            Some(fatal) => Err(fatal),
-            None => Ok(ctx.tomar_saida()),
+            Some(fatal) => Err(limpar_erro(fatal, &ctx)),
+            None => {
+                let mut saida = ctx.tomar_saida();
+                for registro in &mut saida.registros {
+                    *registro = ctx.limpar(registro);
+                }
+                Ok(saida)
+            }
         },
-        Err(erro) => Err(converter_erro(&erro, &controle)),
+        Err(erro) => Err(limpar_erro(converter_erro(&erro, &controle), &ctx)),
+    }
+}
+
+/// Passa toda mensagem do erro pela limpeza de segredo do app ([`Verbos::limpar`]).
+fn limpar_erro(erro: ErroDeRoteiro, ctx: &Contexto<'_>) -> ErroDeRoteiro {
+    match erro {
+        ErroDeRoteiro::Sintaxe { mensagem, linha } => ErroDeRoteiro::Sintaxe {
+            mensagem: ctx.limpar(&mensagem),
+            linha,
+        },
+        ErroDeRoteiro::Execucao { mensagem, linha } => ErroDeRoteiro::Execucao {
+            mensagem: ctx.limpar(&mensagem),
+            linha,
+        },
+        ErroDeRoteiro::Verbo { erro, linha } => ErroDeRoteiro::Verbo {
+            erro: erro.mapear(|t| ctx.limpar(t)),
+            linha,
+        },
+        ErroDeRoteiro::Interno(m) => ErroDeRoteiro::Interno(ctx.limpar(&m)),
+        outro => outro,
     }
 }
 

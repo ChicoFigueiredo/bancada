@@ -36,11 +36,16 @@ impl Default for Limites {
 }
 
 /// O que o roteiro produziu ao terminar sem erro.
+///
+/// Os `registros` já passaram por [`Verbos::limpar`](super::Verbos::limpar), mas o host não
+/// sabe o que é segredo: o app DEVE implementar `limpar` e limpar o que guarda em `registrar`.
+/// Os `arquivos` são os nomes devolvidos pelo app em `baixar`, sem nenhuma limpeza do host.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Saida {
     /// Nomes dos arquivos devolvidos por `navegador.baixar`, na ordem.
     pub arquivos: Vec<String>,
-    /// Mensagens passadas a `navegador.registrar`, na ordem (o que o script escreveu).
+    /// Mensagens passadas a `navegador.registrar`, na ordem (o que o script escreveu, depois de
+    /// [`Verbos::limpar`](super::Verbos::limpar)).
     pub registros: Vec<String>,
 }
 

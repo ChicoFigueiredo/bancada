@@ -263,6 +263,128 @@ fn tempo_de_pausa_nao_conta_no_tempo_total() {
 }
 
 #[test]
+fn pausa_automatica_dentro_dos_verbos_nao_conta_no_tempo_total() {
+    // Três verbos que pausam 400 ms cada (CAPTCHA detectado dentro deles) num teto de 500 ms.
+    let mut v = VerbosFalsos::novo().com_pausa_automatica(Duration::from_millis(400));
+    let limites = Limites {
+        tempo_total: Duration::from_millis(500),
+        ..Limites::default()
+    };
+    executar(
+        r##"
+        navegador.abrir("https://portal.exemplo.test/entrar")
+        navegador.clicar("#entrar")
+        navegador.esperar("#saudacao")
+        util.hoje()
+        navegador.registrar("ok")
+        "##,
+        &mut v,
+        &limites,
+    )
+    .expect("1,2 s de pausa automática não estouram 500 ms de tempo total");
+}
+
+#[test]
+fn sem_o_desconto_o_mesmo_roteiro_estouraria_o_tempo() {
+    // Controle do teste acima: a mesma espera, sem o app informar a pausa, estoura.
+    struct SemDesconto(VerbosFalsos);
+    impl Verbos for SemDesconto {
+        fn abrir(&mut self, u: &str) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.abrir(u)
+        }
+        fn esperar(
+            &mut self,
+            s: &str,
+            p: Duration,
+        ) -> Result<bool, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.esperar(s, p)
+        }
+        fn existe(&mut self, s: &str) -> Result<bool, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.existe(s)
+        }
+        fn clicar(&mut self, s: &str) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.clicar(s)
+        }
+        fn texto(&mut self, s: &str) -> Result<String, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.texto(s)
+        }
+        fn tabela(
+            &mut self,
+            s: &str,
+        ) -> Result<Vec<Vec<String>>, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.tabela(s)
+        }
+        fn preencher(
+            &mut self,
+            s: &str,
+            t: &str,
+        ) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.preencher(s, t)
+        }
+        fn preencher_senha(
+            &mut self,
+            s: &str,
+            r: &str,
+        ) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.preencher_senha(s, r)
+        }
+        fn preencher_cpf(&mut self, s: &str) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.preencher_cpf(s)
+        }
+        fn preencher_codigo_do_email(
+            &mut self,
+            s: &str,
+            j: Duration,
+        ) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.preencher_codigo_do_email(s, j)
+        }
+        fn baixar(
+            &mut self,
+            s: &str,
+            n: Option<&str>,
+        ) -> Result<String, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.baixar(s, n)
+        }
+        fn pausa(&mut self, m: &str) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.pausa(m)
+        }
+        fn registrar(&mut self, m: &str) -> Result<(), bancada_navegador::luau::ErroDeVerbo> {
+            self.0.registrar(m)
+        }
+        fn hoje(&mut self) -> Result<String, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.hoje()
+        }
+        fn somar_meses(
+            &mut self,
+            d: &str,
+            n: i32,
+        ) -> Result<String, bancada_navegador::luau::ErroDeVerbo> {
+            self.0.somar_meses(d, n)
+        }
+    }
+    let mut v = SemDesconto(VerbosFalsos::novo().com_pausa_automatica(Duration::from_millis(400)));
+    let limites = Limites {
+        tempo_total: Duration::from_millis(500),
+        ..Limites::default()
+    };
+    let erro = executar(
+        r##"
+        navegador.abrir("https://portal.exemplo.test/entrar")
+        navegador.clicar("#entrar")
+        navegador.esperar("#saudacao")
+        util.hoje()
+        "##,
+        &mut v,
+        &limites,
+    )
+    .expect_err("sem o desconto estoura");
+    assert_eq!(
+        erro,
+        ErroDeRoteiro::LimiteDeTempo(Duration::from_millis(500))
+    );
+}
+
+#[test]
 fn limites_padrao_sao_sensatos() {
     let l = Limites::default();
     assert_eq!(l.tamanho_do_fonte, 64 * 1024);

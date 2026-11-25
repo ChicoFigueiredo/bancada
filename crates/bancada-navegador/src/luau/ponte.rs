@@ -64,9 +64,14 @@ impl<'a> Contexto<'a> {
             .verbos
             .try_borrow_mut()
             .map_err(|_| Error::runtime("chamada recursiva a um verbo"))?;
-        match f(&mut **verbos) {
+        let resultado = f(&mut **verbos);
+        // Pausas automáticas (CAPTCHA, código do aplicativo) dentro do verbo não contam no
+        // tempo total, nem quando o verbo falhou.
+        self.controle.somar_pausa(verbos.tempo_pausado_automatico());
+        match resultado {
             Ok(r) => Ok(r),
             Err(e) => {
+                let e = e.mapear(|t| verbos.limpar(t));
                 if e.e_fatal() {
                     self.controle.marcar_fatal(ErroDeRoteiro::Verbo {
                         erro: e.clone(),
@@ -75,6 +80,15 @@ impl<'a> Contexto<'a> {
                 }
                 Err(Error::external(e))
             }
+        }
+    }
+
+    /// Passa o texto pela limpeza de segredo do app.
+    pub(crate) fn limpar(&self, texto: &str) -> String {
+        match self.verbos.try_borrow() {
+            Ok(v) => v.limpar(texto),
+            // Não deveria acontecer (o roteiro já terminou); na dúvida, não devolve o texto.
+            Err(_) => "[texto omitido]".to_owned(),
         }
     }
 }
