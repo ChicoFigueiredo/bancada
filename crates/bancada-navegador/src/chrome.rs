@@ -200,6 +200,15 @@ pub fn argumentos_do_chrome(perfil: &Path, sem_janela: bool, sem_sandbox: bool) 
         "--no-default-browser-check".into(),
         "--password-store=basic".into(),
         "--disable-background-networking".into(),
+        // Sem atualização de componentes nem de extensões embutidas: num perfil novo o Chrome
+        // baixava um componente (arquivo CRX de dezenas de MB) para a MESMA pasta do download
+        // do roteiro, e o coletor pegava "o primeiro arquivo novo" achando que era o documento.
+        "--disable-component-update".into(),
+        "--disable-component-extensions-with-background-pages".into(),
+        "--disable-default-apps".into(),
+        "--disable-sync".into(),
+        "--disable-domain-reliability".into(),
+        "--disable-client-side-phishing-detection".into(),
         "--disable-features=Translate,PasswordLeakDetection".into(),
         "--disable-save-password-bubble".into(),
     ];
