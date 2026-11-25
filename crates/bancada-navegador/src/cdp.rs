@@ -239,6 +239,30 @@ pub struct Cdp {
     /// Só na conexão do **navegador**: o alvo da aba vigiada. Qualquer outra página que
     /// aparecer (janela nova aberta por script) é fechada antes de carregar.
     alvo_proprio: Option<String>,
+    /// Quantas vezes o quadro principal navegou (`Page.frameNavigated`) nesta conexão. O motor
+    /// compara este contador antes e depois de uma conferência para saber se a página mudou no
+    /// meio (TOCTOU da digitação do segredo).
+    pub navegacoes: u64,
+}
+
+/// O tamanho máximo, em caracteres, de um texto que vem da página e vai a erro, log ou banco.
+pub const MAXIMO_DE_TEXTO_DA_PAGINA: usize = 200;
+
+/// Higieniza um texto que a **página** controla (o `campo` e o `termo` de um bloqueio, que ela
+/// pode forjar chamando o binding): remove caracteres de controle e de formatação invisível
+/// (inclusive os que invertem o sentido do texto) e trunca em [`MAXIMO_DE_TEXTO_DA_PAGINA`]
+/// caracteres, para o texto não forjar linha de log nem encher o banco.
+#[must_use]
+pub fn sanear_texto_da_pagina(texto: &str) -> String {
+    texto
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(*c as u32,
+                    0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xFEFF)
+        })
+        .take(MAXIMO_DE_TEXTO_DA_PAGINA)
+        .collect()
 }
 
 /// O que se barra na rede, decidido na hora, dentro do navegador (`Fetch.requestPaused`), antes
@@ -331,6 +355,7 @@ impl Cdp {
             rede: None,
             barrados_na_rede: Vec::new(),
             alvo_proprio: None,
+            navegacoes: 0,
         })
     }
 
@@ -444,6 +469,9 @@ impl Cdp {
                 }
             }
             "Runtime.executionContextsCleared" => self.contexto = None,
+            "Page.frameNavigated" if v["params"]["frame"]["parentId"].is_null() => {
+                self.navegacoes = self.navegacoes.wrapping_add(1);
+            }
             "Fetch.requestPaused" => {
                 self.tratar_pedido(&v["params"], v["sessionId"].as_str());
                 return;
@@ -757,6 +785,16 @@ mod testes {
         // esquemas que não são de rede
         assert!(decidir("file:///etc/passwd", "GET", "Document", None).is_some());
         assert!(decidir("data:text/plain,oi", "GET", "Document", None).is_none());
+    }
+
+    #[test]
+    fn texto_forjado_pela_pagina_e_truncado_e_sem_controle() {
+        let forjado = format!("linha\nfalsa\r\u{1b}[31m{}\u{202e}fim", "a".repeat(500));
+        let s = sanear_texto_da_pagina(&forjado);
+        assert_eq!(s.chars().count(), MAXIMO_DE_TEXTO_DA_PAGINA);
+        assert!(s.starts_with("linhafalsa[31m"), "{s}");
+        assert!(!s.chars().any(|c| c.is_control() || c == '\u{202e}'));
+        assert_eq!(sanear_texto_da_pagina("pagar"), "pagar");
     }
 
     #[test]

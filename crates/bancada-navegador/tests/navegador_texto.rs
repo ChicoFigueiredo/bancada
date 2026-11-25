@@ -31,6 +31,8 @@ fn falso() -> NavegadorFalso {
     n.atual = "p".into();
     let mut campo = Elemento::com_texto("");
     campo.candidato.eh_campo = true;
+    campo.candidato.eh_senha = true;
+    campo.candidato.tipo = "password".into();
     n.elementos.insert("#senha".into(), campo);
     n
 }
@@ -45,8 +47,13 @@ fn texto_devolve_o_texto_visivel_do_elemento() {
 fn texto_recusa_campo_de_formulario_mesmo_com_valor_digitado() {
     use bancada_segredos::Segredo;
     let mut n = falso();
-    n.preencher_segredo("#senha", &Segredo::novo("SenhaFicticia#1"))
-        .unwrap();
+    n.preencher_segredo(
+        "#senha",
+        &Segredo::novo("SenhaFicticia#1"),
+        bancada_navegador::navegador::TipoDeCampo::Senha,
+        &|_| true,
+    )
+    .unwrap();
     let e = n.texto("#senha").unwrap_err().to_string();
     assert!(e.contains("campo de formulário"), "{e}");
     assert!(!e.contains("SenhaFicticia"), "{e}");

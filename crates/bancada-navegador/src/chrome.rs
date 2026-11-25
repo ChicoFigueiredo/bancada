@@ -36,9 +36,9 @@
 //! aceita WebSocket de quem não manda `Origin` (nunca passamos `--remote-allow-origins`), mas
 //! qualquer processo do mesmo usuário na máquina pode conectar enquanto a janela está aberta.
 
-use crate::cdp::{Cdp, http_json};
+use crate::cdp::{Cdp, http_json, sanear_texto_da_pagina};
 use crate::erro::{ErroDoNavegador, Resultado};
-use crate::navegador::Navegador;
+use crate::navegador::{Navegador, TipoDeCampo};
 use crate::pagina::Pagina;
 use crate::politica::{Bloqueio, Candidato, Politica};
 use bancada_segredos::Segredo;
@@ -79,11 +79,18 @@ pub trait Lancador {
     /// # Errors
     /// O programa não está num lugar de confiança ou não subiu (a mensagem não leva dados).
     fn lancar(&self, programa: &Path, args: &[String]) -> Result<Child, String>;
-    /// Abre o Chrome sem o sandbox (só ambientes de teste que não o têm).
+    /// Abre o Chrome sem o sandbox (`--no-sandbox`). **Só para ambientes que não o têm** (um
+    /// contêiner sem *user namespaces*, por exemplo): sem o sandbox, uma falha do renderizador
+    /// vira acesso ao usuário. O app que liga isto (no SBF, a variável `SBF_CHROME_SEM_SANDBOX`)
+    /// deve ser um ato consciente; o motor registra um aviso em [`Chrome::avisos`] toda vez que
+    /// abre assim.
     fn sem_sandbox(&self) -> bool {
         false
     }
 }
+
+/// O aviso que a abertura registra quando o Chrome sobe sem o sandbox.
+pub const AVISO_SEM_SANDBOX: &str = "o Chrome foi aberto SEM o sandbox (--no-sandbox): use só onde o sistema não o oferece; uma falha do navegador alcança o seu usuário";
 
 /// O nome do mundo isolado do SBF.
 const MUNDO: &str = "sbf";
@@ -216,6 +223,11 @@ pub struct Chrome {
     barrados: Vec<Bloqueio>,
     ws_pagina: String,
     politica: Arc<dyn Politica + Send + Sync>,
+    /// Quantas navegações do quadro principal já tinham acontecido na última leitura de
+    /// [`Navegador::pagina`] (a "conferência" que o app fez antes de pedir um segredo).
+    marca_da_pagina: u64,
+    /// Avisos da abertura (sem dado sensível), para o app registrar no histórico.
+    avisos: Vec<String>,
 }
 
 impl std::fmt::Debug for Chrome {
@@ -223,6 +235,18 @@ impl std::fmt::Debug for Chrome {
         f.debug_struct("Chrome")
             .field("perfil", &self.perfil)
             .finish_non_exhaustive()
+    }
+}
+
+/// O maior payload do binding `sbfBloqueio` que se lê (a página o controla).
+const MAXIMO_DO_PAYLOAD: usize = 4096;
+
+/// Um bloqueio vindo da página (que pode forjá-lo): `campo` e `termo` higienizados (sem
+/// controle, no máximo 200 caracteres) antes de irem a erro, log ou banco.
+fn bloqueio_da_pagina(b: &Value) -> Bloqueio {
+    Bloqueio {
+        campo: sanear_texto_da_pagina(b["campo"].as_str().unwrap_or("")),
+        termo: sanear_texto_da_pagina(b["termo"].as_str().unwrap_or("")),
     }
 }
 
@@ -257,7 +281,8 @@ impl Chrome {
         preparar_preferencias(&o.perfil)?;
         let arquivo_da_porta = o.perfil.join("DevToolsActivePort");
         let _ = std::fs::remove_file(&arquivo_da_porta);
-        let args = argumentos_do_chrome(&o.perfil, o.sem_janela, lancador.sem_sandbox());
+        let sem_sandbox = lancador.sem_sandbox();
+        let args = argumentos_do_chrome(&o.perfil, o.sem_janela, sem_sandbox);
         let mut filho = lancador.lancar(&programa, &args).map_err(erro)?;
 
         let limite = Instant::now() + Duration::from_secs(25);
@@ -285,6 +310,12 @@ impl Chrome {
                 barrados: Vec::new(),
                 ws_pagina,
                 politica,
+                marca_da_pagina: 0,
+                avisos: if sem_sandbox {
+                    vec![AVISO_SEM_SANDBOX.to_owned()]
+                } else {
+                    Vec::new()
+                },
             }),
             Err(e) => {
                 let _ = filho.kill();
@@ -352,6 +383,13 @@ impl Chrome {
         &self.ws_pagina
     }
 
+    /// Os avisos da abertura (por exemplo, [`AVISO_SEM_SANDBOX`]), sem dado sensível, para o app
+    /// registrar uma vez no histórico da execução.
+    #[must_use]
+    pub fn avisos(&self) -> &[String] {
+        &self.avisos
+    }
+
     /// Fecha o Chrome.
     pub fn fechar(mut self) {
         let _ = self.navegador.chamar("Browser.close", &json!({}));
@@ -405,14 +443,13 @@ impl Chrome {
         while let Some(e) = self.pagina.eventos.pop_front() {
             match e["method"].as_str() {
                 Some("Runtime.bindingCalled") if e["params"]["name"] == "sbfBloqueio" => {
+                    // A página controla o binding: payload gigante nem é lido.
                     if let Some(b) = e["params"]["payload"]
                         .as_str()
+                        .filter(|t| t.len() <= MAXIMO_DO_PAYLOAD)
                         .and_then(|t| serde_json::from_str::<Value>(t).ok())
                     {
-                        self.barrados.push(Bloqueio {
-                            campo: b["campo"].as_str().unwrap_or("").to_owned(),
-                            termo: b["termo"].as_str().unwrap_or("").to_owned(),
-                        });
+                        self.barrados.push(bloqueio_da_pagina(&b));
                     }
                 }
                 Some("Page.frameStartedLoading" | "Page.frameNavigated") => navegou = true,
@@ -563,8 +600,52 @@ impl Navegador for Chrome {
         Ok(())
     }
 
-    fn preencher_segredo(&mut self, seletor: &str, segredo: &Segredo) -> Resultado<()> {
+    fn preencher_segredo(
+        &mut self,
+        seletor: &str,
+        segredo: &Segredo,
+        tipo: TipoDeCampo,
+        url_permitida: &dyn Fn(&str) -> bool,
+    ) -> Resultado<()> {
+        const MUDOU: &str = "a página mudou depois da conferência: o segredo não foi digitado";
+        // 1. Não navegou desde que o app leu a página (o evento pode estar na fila ainda).
+        let _ = self.pagina.bombear(Duration::from_millis(2));
+        if self.pagina.navegacoes != self.marca_da_pagina {
+            return Err(erro(MUDOU));
+        }
+        let antes = self.pagina.navegacoes;
+        // 2. O campo, com o foco.
         self.focar(seletor)?;
+        let c = self.ponte(&format!("confirmarCampo({})", literal(seletor)))?;
+        let tipo_do_campo = c["tipo"].as_str().unwrap_or("");
+        let campo_certo = c["foco"] == Value::Bool(true)
+            && match tipo {
+                TipoDeCampo::Senha => {
+                    c["senha"] == Value::Bool(true) && tipo_do_campo == "password"
+                }
+                TipoDeCampo::Texto => {
+                    c["campo"] == Value::Bool(true)
+                        && c["senha"] != Value::Bool(true)
+                        && matches!(tipo_do_campo, "text" | "tel" | "number" | "search")
+                }
+            };
+        if !campo_certo {
+            return Err(erro(
+                "o campo não é o esperado para este segredo: não foi digitado",
+            ));
+        }
+        // 3. A URL que o Chrome carregou, a última coisa antes de digitar.
+        let url = self.url_confiavel()?;
+        if !url_permitida(&url) {
+            return Err(erro(
+                "a página saiu do site aprovado antes de digitar: o segredo não foi digitado",
+            ));
+        }
+        // 4. Nenhuma navegação chegou durante as conferências acima.
+        let _ = self.pagina.bombear(Duration::from_millis(1));
+        if self.pagina.navegacoes != antes {
+            return Err(erro(MUDOU));
+        }
         self.pagina.inserir_texto_secreto(segredo.expor())
     }
 
@@ -646,6 +727,11 @@ impl Navegador for Chrome {
     }
 
     fn pagina(&mut self) -> Resultado<Pagina> {
+        // A "conferência" do app: daqui em diante, qualquer navegação do quadro principal
+        // invalida a autorização de digitar um segredo (veja `preencher_segredo`). O contador
+        // é lido antes da URL: uma navegação no meio só torna a checagem mais rígida.
+        let _ = self.pagina.bombear(Duration::from_millis(1));
+        self.marca_da_pagina = self.pagina.navegacoes;
         let v = self.ponte("pagina()")?;
         let mut p: Pagina = if v.is_null() {
             Pagina::default()
@@ -665,11 +751,8 @@ impl Navegador for Chrome {
             && let Ok(v) = self.ponte("pegarBloqueios()")
             && let Some(a) = v.as_array()
         {
-            for b in a {
-                self.barrados.push(Bloqueio {
-                    campo: b["campo"].as_str().unwrap_or("").to_owned(),
-                    termo: b["termo"].as_str().unwrap_or("").to_owned(),
-                });
+            for b in a.iter().take(50) {
+                self.barrados.push(bloqueio_da_pagina(b));
             }
         }
         Ok(std::mem::take(&mut self.barrados))
