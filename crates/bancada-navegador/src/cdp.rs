@@ -446,6 +446,30 @@ impl Cdp {
         }
     }
 
+    /// Lê TUDO o que já chegou do Chrome (até a conexão ficar ociosa por alguns milissegundos,
+    /// no máximo 300 ms) e trata os eventos. Diferente de [`Self::bombear`], que lê por um
+    /// tempo fixo e pode parar no meio de uma fila de eventos, serve para decidir algo com o
+    /// contador [`Self::navegacoes`] em dia.
+    ///
+    /// # Errors
+    /// Falha de rede.
+    pub fn esgotar(&mut self) -> Resultado<()> {
+        let limite = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < limite {
+            match self.ws.receber(Duration::from_millis(4))? {
+                Some(texto) => {
+                    if let Ok(v) = serde_json::from_str::<Value>(&texto)
+                        && v.get("method").is_some()
+                    {
+                        self.registrar(v);
+                    }
+                }
+                None => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+
     /// Trata um evento recebido: acompanha o mundo isolado, responde ao `Fetch` na hora e
     /// guarda o resto em [`Self::eventos`].
     fn registrar(&mut self, v: Value) {

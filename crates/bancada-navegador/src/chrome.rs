@@ -301,22 +301,25 @@ impl Chrome {
         };
         let montado = Self::conectar(porta, &mut filho, &politica);
         match montado {
-            Ok((pagina, navegador, ws_pagina)) => Ok(Self {
-                _trava: trava,
-                perfil: o.perfil.clone(),
-                filho,
-                pagina,
-                navegador,
-                barrados: Vec::new(),
-                ws_pagina,
-                politica,
-                marca_da_pagina: 0,
-                avisos: if sem_sandbox {
-                    vec![AVISO_SEM_SANDBOX.to_owned()]
-                } else {
-                    Vec::new()
-                },
-            }),
+            Ok((pagina, navegador, ws_pagina)) => {
+                let marca_da_pagina = pagina.navegacoes;
+                Ok(Self {
+                    _trava: trava,
+                    perfil: o.perfil.clone(),
+                    filho,
+                    pagina,
+                    navegador,
+                    barrados: Vec::new(),
+                    ws_pagina,
+                    politica,
+                    marca_da_pagina,
+                    avisos: if sem_sandbox {
+                        vec![AVISO_SEM_SANDBOX.to_owned()]
+                    } else {
+                        Vec::new()
+                    },
+                })
+            }
             Err(e) => {
                 let _ = filho.kill();
                 let _ = filho.wait();
@@ -423,6 +426,10 @@ impl Chrome {
             if pronto == "complete" {
                 // um instante para a ponte do novo documento e a navegação pendente
                 std::thread::sleep(Duration::from_millis(80));
+                let _ = self.pagina.esgotar();
+                // A página que acabou de carregar é a "conferida": só uma navegação POSTERIOR
+                // (um redirecionamento por timer) invalida a digitação de um segredo.
+                self.marca_da_pagina = self.pagina.navegacoes;
                 return Ok(());
             }
             if Instant::now() >= limite {
@@ -609,7 +616,7 @@ impl Navegador for Chrome {
     ) -> Resultado<()> {
         const MUDOU: &str = "a página mudou depois da conferência: o segredo não foi digitado";
         // 1. Não navegou desde que o app leu a página (o evento pode estar na fila ainda).
-        let _ = self.pagina.bombear(Duration::from_millis(2));
+        self.pagina.esgotar()?;
         if self.pagina.navegacoes != self.marca_da_pagina {
             return Err(erro(MUDOU));
         }
@@ -642,7 +649,7 @@ impl Navegador for Chrome {
             ));
         }
         // 4. Nenhuma navegação chegou durante as conferências acima.
-        let _ = self.pagina.bombear(Duration::from_millis(1));
+        self.pagina.esgotar()?;
         if self.pagina.navegacoes != antes {
             return Err(erro(MUDOU));
         }
@@ -730,7 +737,7 @@ impl Navegador for Chrome {
         // A "conferência" do app: daqui em diante, qualquer navegação do quadro principal
         // invalida a autorização de digitar um segredo (veja `preencher_segredo`). O contador
         // é lido antes da URL: uma navegação no meio só torna a checagem mais rígida.
-        let _ = self.pagina.bombear(Duration::from_millis(1));
+        let _ = self.pagina.esgotar();
         self.marca_da_pagina = self.pagina.navegacoes;
         let v = self.ponte("pagina()")?;
         let mut p: Pagina = if v.is_null() {
