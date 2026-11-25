@@ -268,6 +268,26 @@
     if (e.select) { try { e.select(); } catch (x) {} }
     return document.activeElement === e;
   }
+  // O texto VISÍVEL de um elemento, nunca o valor de um campo: `input`, `textarea` e `select`
+  // (e o que estiver dentro deles) ficam de fora, e a senha digitada nunca é lida.
+  function texto(sel) {
+    const e = document.querySelector(sel);
+    if (!e) return { erro: 'o elemento não existe' };
+    if (/^(INPUT|TEXTAREA|SELECT|OPTION)$/.test(e.tagName)) return { erro: 'texto não lê campo de formulário' };
+    if (!visivel(e)) return { erro: 'o elemento não está visível' };
+    const saida = [];
+    let total = 0;
+    const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+    while (w.nextNode() && total < 20000) {
+      const n = w.currentNode;
+      const pai = n.parentElement;
+      if (!pai || /^(SCRIPT|STYLE|NOSCRIPT|TEXTAREA|SELECT|OPTION|INPUT)$/.test(pai.tagName)) continue;
+      const t = n.nodeValue.replace(/\s+/g, ' ').trim();
+      if (!t || !visivel(pai)) continue;
+      saida.push(t); total += t.length + 1;
+    }
+    return { texto: saida.join(' ') };
+  }
   function tabela(sel) {
     const t = document.querySelector(sel);
     if (!t || !t.rows) return null;
@@ -278,6 +298,7 @@
     alvoDeClique: alvoDeClique,
     focarCampo: focarCampo,
     tabela: tabela,
+    texto: texto,
     pronto: () => document.readyState,
     pegarBloqueios: () => { const b = window.__sbfBloqueios || []; window.__sbfBloqueios = []; return b; },
     descrever: (sel) => { const el = document.querySelector(sel); return el ? descrever(el) : null; },

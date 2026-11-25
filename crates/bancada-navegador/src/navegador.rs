@@ -30,6 +30,14 @@ pub trait Navegador {
         pasta: &Path,
         prazo: Duration,
     ) -> Resultado<PathBuf>;
+    /// O texto **visível** do elemento (o que o usuário lê). Nunca o valor de um `<input>`,
+    /// `<textarea>` ou campo de senha: para esses, é erro. O Chrome e o navegador falso o
+    /// implementam; quem não implementa (um navegador de teste que não lê texto) recusa.
+    fn texto(&mut self, _seletor: &str) -> Resultado<String> {
+        Err(crate::erro::ErroDoNavegador::Navegador(
+            "este navegador não lê texto".into(),
+        ))
+    }
     /// As linhas da tabela, como texto.
     fn ler_tabela(&mut self, seletor: &str) -> Resultado<Vec<Vec<String>>>;
     /// A página simplificada (sem valores de campo).

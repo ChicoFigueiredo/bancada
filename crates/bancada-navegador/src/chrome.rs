@@ -617,6 +617,17 @@ impl Navegador for Chrome {
         }
     }
 
+    fn texto(&mut self, seletor: &str) -> Resultado<String> {
+        let v = self.ponte(&format!("texto({})", literal(seletor)))?;
+        if let Some(e) = v.get("erro").and_then(Value::as_str) {
+            return Err(erro(e));
+        }
+        Ok(v.get("texto")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned())
+    }
+
     fn ler_tabela(&mut self, seletor: &str) -> Resultado<Vec<Vec<String>>> {
         let v = self.ponte(&format!("tabela({})", literal(seletor)))?;
         let linhas = v.as_array().ok_or_else(|| erro("a tabela não existe"))?;
