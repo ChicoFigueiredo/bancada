@@ -12,6 +12,15 @@ publish = false
 [workspace.dependencies]
 bancada-armazem = { path = "crates/bancada-armazem" }
 bancada-segredos = { path = "crates/bancada-segredos" }
+bancada-navegador = { path = "crates/bancada-navegador" }
+
+# Luau compilado junto (C++), para os roteiros escritos.
+mlua = { version = "0.12", features = ["luau", "serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zeroize = { version = "1.9", features = ["derive"] }
+tempfile = "3"
 
 # SQLite embarcado (MIT; o código C do SQLite é domínio público), a mesma versão do Chess Studio.
 rusqlite = { version = "0.41", features = ["bundled"] }
