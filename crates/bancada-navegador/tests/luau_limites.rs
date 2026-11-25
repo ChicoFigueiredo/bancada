@@ -71,7 +71,7 @@ fn laco_infinito_estoura_o_tempo_quando_as_instrucoes_sobram() {
 fn string_rep_gigante_estoura_a_memoria() {
     let mut v = VerbosFalsos::novo();
     let erro = executar(
-        r##"local s = string.rep("x", 1e9)"##,
+        r##"local s = string.rep("x", 1000) while true do s = s .. s end"##,
         &mut v,
         &Limites::default(),
     )

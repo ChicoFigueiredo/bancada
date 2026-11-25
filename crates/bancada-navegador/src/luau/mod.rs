@@ -1,4 +1,4 @@
-//! Host Luau dos roteiros escritos (ADR-022 do SBF).
+//! Host Luau dos roteiros escritos.
 //!
 //! O roteiro é um programa Luau escrito à mão que só chama VERBOS de alto nível
 //! (`navegador.abrir`, `navegador.clicar`, `navegador.preencher_senha`...). Este módulo não
@@ -13,6 +13,7 @@
 
 mod limites;
 mod ponte;
+mod texto;
 mod verbos;
 
 use std::sync::Arc;
@@ -118,6 +119,8 @@ fn nova_vm(controle: &Arc<Controle>) -> mlua::Result<Lua> {
         globais.raw_set(chave, Value::Nil)?;
     }
 
+    // Antes do sandbox: depois dele a tabela `string` fica somente leitura.
+    texto::instalar(&lua)?;
     lua.sandbox(true)?;
 
     let c = Arc::clone(controle);
