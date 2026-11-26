@@ -6,12 +6,13 @@
 //! chaveiro e do e-mail, e chama [`executar`].
 //!
 //! O VM é o sandbox do Luau, sem `os`, `io`, `require`, `loadstring`, `getfenv`, `debug`,
-//! `coroutine` nem rede; só as tabelas `navegador` e `util` e as bibliotecas `string`,
+//! `coroutine` nem rede; só as tabelas `navegador`, `util` e `parametros` e as bibliotecas `string`,
 //! `table`, `math` e `utf8`. Há teto de instruções, de memória, de tempo total, de chamadas a
 //! verbos e de tamanho do fonte ([`Limites`]). O script nunca recebe senha, CPF nem código de
 //! MFA: os verbos de segredo só recebem o rótulo do chaveiro.
 
 mod limites;
+mod parametros;
 mod ponte;
 mod texto;
 mod verbos;
@@ -21,6 +22,7 @@ use std::sync::Arc;
 use mlua::{Error, Lua, LuaOptions, StdLib, Value, VmState};
 
 pub use limites::{ErroDeRoteiro, Limites, Saida};
+pub use parametros::{Parametros, ValorDeParametro};
 pub use ponte::{ESPERA_MAXIMA, ESPERA_PADRAO, JANELA_MAXIMA, JANELA_PADRAO};
 pub use verbos::{ErroDeVerbo, ResultadoDeVerbo, Verbos};
 
@@ -67,6 +69,17 @@ pub fn executar(
     verbos: &mut dyn Verbos,
     limites: &Limites,
 ) -> Result<Saida, ErroDeRoteiro> {
+    executar_com(fonte, verbos, limites, &Parametros::novo())
+}
+
+/// Como [`executar`], entregando ao roteiro os `parametros` já resolvidos pelo app (a tabela
+/// global `parametros`, somente leitura). Sem parâmetro declarado a tabela existe e vazia.
+pub fn executar_com(
+    fonte: &str,
+    verbos: &mut dyn Verbos,
+    limites: &Limites,
+    parametros: &Parametros,
+) -> Result<Saida, ErroDeRoteiro> {
     if fonte.len() > limites.tamanho_do_fonte {
         return Err(ErroDeRoteiro::FonteGrande {
             tamanho: fonte.len(),
@@ -78,7 +91,7 @@ pub fn executar(
     let ctx = Contexto::novo(verbos, Arc::clone(&controle));
 
     let resultado = lua.scope(|escopo| {
-        ponte::instalar(&lua, escopo, &ctx)?;
+        ponte::instalar(&lua, escopo, &ctx, parametros)?;
         lua.load(fonte).set_name(format!("={NOME_DO_CHUNK}")).exec()
     });
 

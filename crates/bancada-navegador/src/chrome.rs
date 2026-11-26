@@ -259,6 +259,34 @@ fn bloqueio_da_pagina(b: &Value) -> Bloqueio {
     }
 }
 
+/// O evento é de download (início ou andamento)?
+fn e_evento_de_download(e: &Value) -> bool {
+    matches!(
+        e["method"].as_str(),
+        Some("Browser.downloadWillBegin" | "Browser.downloadProgress")
+    )
+}
+
+/// O `guid` vira nome de arquivo dentro da pasta do download: só letras, dígitos e hífen.
+fn guid_serve_de_arquivo(guid: &str) -> bool {
+    !guid.is_empty()
+        && guid.len() <= 64
+        && guid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// O nome sugerido pelo site, reduzido a um nome de arquivo: sem pasta, sem controle, sem ponto
+/// no começo, no máximo 120 caracteres.
+fn nome_do_download(sugerido: &str) -> String {
+    let base = sugerido.rsplit(['/', '\\']).next().unwrap_or("");
+    let limpo: String = base.chars().filter(|c| !c.is_control()).take(120).collect();
+    let limpo = limpo.trim_start_matches('.').trim().to_owned();
+    if limpo.is_empty() {
+        "download".to_owned()
+    } else {
+        limpo
+    }
+}
+
 fn literal(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
@@ -448,6 +476,22 @@ impl Chrome {
     }
 
     /// Passa os eventos de bloqueio da fila para `barrados`; devolve se houve navegação.
+    /// Os identificadores dos quadros desta página (o principal e os filhos).
+    fn quadros_da_pagina(&mut self) -> Resultado<std::collections::HashSet<String>> {
+        let r = self.pagina.chamar("Page.getFrameTree", &json!({}))?;
+        let mut achados = std::collections::HashSet::new();
+        let mut fila = vec![&r["frameTree"]];
+        while let Some(no) = fila.pop() {
+            if let Some(id) = no["frame"]["id"].as_str() {
+                achados.insert(id.to_owned());
+            }
+            if let Some(filhos) = no["childFrames"].as_array() {
+                fila.extend(filhos);
+            }
+        }
+        Ok(achados)
+    }
+
     fn absorver_eventos(&mut self) -> bool {
         let mut navegou = false;
         // A conexão do navegador só é lida aqui: é onde se fecha a janela nova antes de ela
@@ -673,39 +717,72 @@ impl Navegador for Chrome {
     ) -> Resultado<PathBuf> {
         std::fs::create_dir_all(pasta)?;
         let pasta = pasta.canonicalize()?;
+        // "allowAndName": o Chrome grava cada download com o seu `guid` e avisa por evento. Só
+        // vale o download iniciado por um quadro DESTA página: o próprio navegador também baixa
+        // coisas (pacotes de componente, CRX) para a mesma pasta, e "o primeiro arquivo novo"
+        // pegava esse lixo no lugar do documento.
         self.navegador.chamar(
             "Browser.setDownloadBehavior",
-            &json!({"behavior": "allow", "downloadPath": pasta.to_string_lossy()}),
+            &json!({
+                "behavior": "allowAndName",
+                "downloadPath": pasta.to_string_lossy(),
+                "eventsEnabled": true,
+            }),
         )?;
-        let antes: std::collections::HashSet<std::ffi::OsString> = std::fs::read_dir(&pasta)?
-            .filter_map(|e| e.ok().map(|e| e.file_name()))
-            .collect();
+        let quadros = self.quadros_da_pagina()?;
+        self.navegador.eventos.retain(|e| !e_evento_de_download(e));
         self.clicar(seletor)?;
         let limite = Instant::now() + prazo;
+        let mut escolhido: Option<(String, String)> = None;
         loop {
-            self.pagina.bombear(Duration::from_millis(100))?;
+            self.pagina.bombear(Duration::from_millis(50))?;
+            self.navegador.bombear(Duration::from_millis(50))?;
             self.absorver_eventos();
             if !self.barrados.is_empty() {
                 return Err(erro("o clique foi barrado pela lista de segurança"));
             }
-            let novo = std::fs::read_dir(&pasta)?
-                .filter_map(Result::ok)
-                .filter(|e| !antes.contains(&e.file_name()))
-                .map(|e| e.path())
-                .find(|p| {
-                    let nome = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    !nome.ends_with(".crdownload")
-                        && !nome.starts_with('.')
-                        && !nome.ends_with(".tmp")
-                });
-            if let Some(p) = novo {
-                // espera o tamanho estabilizar; o Chrome renomeia o arquivo ao terminar, e um
-                // nome que some no meio da conferência é só "ainda não terminou"
-                if let Ok(t1) = std::fs::metadata(&p).map(|m| m.len()) {
-                    std::thread::sleep(Duration::from_millis(250));
-                    if std::fs::metadata(&p).map(|m| m.len()).ok() == Some(t1) {
-                        return Ok(p);
+            let (downloads, outros): (Vec<Value>, Vec<Value>) = self
+                .navegador
+                .eventos
+                .drain(..)
+                .partition(e_evento_de_download);
+            self.navegador.eventos.extend(outros);
+            for e in downloads {
+                let dados = &e["params"];
+                let guid = dados["guid"].as_str().unwrap_or_default();
+                match e["method"].as_str() {
+                    Some("Browser.downloadWillBegin")
+                        if escolhido.is_none()
+                            && guid_serve_de_arquivo(guid)
+                            && dados["frameId"]
+                                .as_str()
+                                .is_some_and(|q| quadros.contains(q)) =>
+                    {
+                        let nome = nome_do_download(
+                            dados["suggestedFilename"].as_str().unwrap_or_default(),
+                        );
+                        escolhido = Some((guid.to_owned(), nome));
                     }
+                    Some("Browser.downloadProgress") => {
+                        let Some((meu, nome)) = &escolhido else {
+                            continue;
+                        };
+                        if guid != meu {
+                            continue;
+                        }
+                        match dados["state"].as_str() {
+                            Some("completed") => {
+                                let destino = pasta.join(nome);
+                                std::fs::rename(pasta.join(meu), &destino)?;
+                                return Ok(destino);
+                            }
+                            Some("canceled") => {
+                                return Err(erro("o download foi cancelado"));
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
             if Instant::now() >= limite {
@@ -862,5 +939,29 @@ mod testes {
             argumentos_do_chrome(Path::new("/tmp/p"), false, true)
                 .contains(&"--no-sandbox".to_owned())
         );
+    }
+}
+
+#[cfg(test)]
+mod testes_do_download {
+    use super::{guid_serve_de_arquivo, nome_do_download};
+
+    #[test]
+    fn nome_sugerido_vira_so_o_nome_do_arquivo() {
+        assert_eq!(nome_do_download("contracheque.pdf"), "contracheque.pdf");
+        assert_eq!(nome_do_download("../../etc/passwd"), "passwd");
+        assert_eq!(nome_do_download("c:\\tmp\\x.pdf"), "x.pdf");
+        assert_eq!(nome_do_download(".oculto.pdf"), "oculto.pdf");
+        assert_eq!(nome_do_download("a\u{7}b.pdf"), "ab.pdf");
+        assert_eq!(nome_do_download(""), "download");
+        assert_eq!(nome_do_download("..."), "download");
+    }
+
+    #[test]
+    fn guid_com_barra_ou_ponto_nao_vira_caminho() {
+        assert!(guid_serve_de_arquivo("3f2b9c1e-aaaa-bbbb"));
+        for ruim in ["", "..", "a/b", "a\\b", "x.y"] {
+            assert!(!guid_serve_de_arquivo(ruim), "{ruim}");
+        }
     }
 }

@@ -3,7 +3,8 @@
 //!
 //! - `cdp`, `chrome`, `navegador`, `pagina`, `politica`, `falso`, `site_falso`: o navegador
 //!   (extraído do `sbf-roteiros`); `site_falso_conexoes`: o painel de conexões fictício
-//!   (Meu Pluggy) para o roteiro de atualizar conexões.
+//!   (Meu Pluggy) para o roteiro de atualizar conexões; `site_falso_soucaixa`: o portal do
+//!   SouCaixa fictício (login em etapas, calendário de meses, download do PDF).
 //! - `luau`: o roteiro escrito, com verbos de alto nível sobre o trait `luau::Verbos`.
 
 pub mod cdp;
@@ -17,6 +18,7 @@ pub mod pagina;
 pub mod politica;
 pub mod site_falso;
 pub mod site_falso_conexoes;
+pub mod site_falso_soucaixa;
 pub mod url;
 
 pub use erro::{ErroDoNavegador, Resultado};
